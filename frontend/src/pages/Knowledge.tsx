@@ -11,11 +11,13 @@ import {
   fetchKnowledge,
   fetchKnowledgePolicy,
   updateKnowledgeSettings,
-  type CommitCompareResult,
-  type IndexedCommit,
-  type KnowledgeOverview,
 } from '../lib/api'
-import type { KnowledgeNode } from '../types'
+import type {
+  CommitCompareResult,
+  IndexedCommit,
+  KnowledgeOverview,
+} from '../lib/BackendTypes'
+import type { KnowledgeNode } from '../lib/FrontendTypes'
 
 function toTreeData(nodes: KnowledgeNode[]): DataNode[] {
   return nodes.map((node) => ({

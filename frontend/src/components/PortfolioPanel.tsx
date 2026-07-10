@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Spin } from 'antd'
-import { fetchPortfolioOverview, type PortfolioOverview } from '../lib/api'
+import { fetchPortfolioOverview } from '../lib/api'
+import type { PortfolioOverview } from '../lib/BackendTypes'
 
 export default function PortfolioPanel() {
   const [open, setOpen] = useState(false)

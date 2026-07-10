@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { fetchRepositories } from '../lib/api'
-import type { Repository } from '../types'
+import type { Repository } from '../lib/FrontendTypes'
 
 interface RepoContextValue {
   repos: Repository[]

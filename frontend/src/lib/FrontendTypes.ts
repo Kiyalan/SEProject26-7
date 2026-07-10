@@ -1,10 +1,3 @@
-export type IssueType =
-  | 'usage_question'
-  | 'duplicate'
-  | 'insufficient_info'
-  | 'bug_fix'
-  | 'feature_request'
-
 export interface Repository {
   id: string
   name: string
@@ -18,21 +11,6 @@ export interface Repository {
   htmlUrl?: string
   private?: boolean
   defaultBranch?: string
-}
-
-export interface Issue {
-  id: string
-  repoId: string
-  number: number
-  title: string
-  body: string
-  author: string
-  createdAt: string
-  labels: string[]
-  type: IssueType
-  aiSummary: string
-  suggestedReply: string
-  confidence: number
 }
 
 export interface ChatMessage {

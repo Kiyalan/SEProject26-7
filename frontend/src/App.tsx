@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
-import MainLayout from './layouts/MainLayout'
+import MainLayout from './pages/MainLayout'
 import Chat from './pages/Chat'
 import IssueDetail from './pages/IssueDetail'
 import IssueList from './pages/IssueList'

@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
 import { fetchRepositories } from '../lib/api'
 import { getUsername } from '../lib/auth'
-import type { Repository } from '../types'
+import type { Repository } from '../lib/FrontendTypes'
 
 const statusLabel = {
   synced: { text: '已同步', className: 'gh-label gh-label-green' },

@@ -8,9 +8,8 @@ import { useRepoContext } from '../context/RepoContext'
 import {
   analyzeIssue,
   fetchRepositoryIssues,
-  type GithubIssue,
-  type IssueAnalysis,
 } from '../lib/api'
+import type { GithubIssue, IssueAnalysis } from '../lib/BackendTypes'
 
 const issueTypeLabels = {
   usage_question: { label: '使用问题', className: 'gh-label gh-label-blue' },

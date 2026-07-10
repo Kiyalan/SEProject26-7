@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
 import { fetchKnowledge, fetchLlmConfig, sendChatMessage } from '../lib/api'
-import type { ChatMessage } from '../types'
+import type { ChatMessage } from '../lib/FrontendTypes'
 
 const questionTypeMap = {
   what: { label: 'What', className: 'gh-label gh-label-blue' },

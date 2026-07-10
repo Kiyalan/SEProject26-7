@@ -10,8 +10,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
-import { fetchRepository, fetchRepositoryIssues, type GithubIssue } from '../lib/api'
-import type { Repository } from '../types'
+import { fetchRepository, fetchRepositoryIssues } from '../lib/api'
+import type { GithubIssue } from '../lib/BackendTypes'
+import type { Repository } from '../lib/FrontendTypes'
 
 export default function RepoDetail() {
   const { repoId } = useParams()
