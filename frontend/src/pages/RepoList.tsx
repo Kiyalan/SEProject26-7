@@ -3,9 +3,9 @@ import { SyncIcon, MarkGithubIcon } from '@primer/octicons-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
-import { fetchRepositories } from '../lib/api'
+import { fetchRepoList } from '../lib/api'
 import { getUsername } from '../lib/auth'
-import type { Repository } from '../lib/FrontendTypes'
+import type { RepositoryList } from '../lib/FrontendTypes'
 
 const statusLabel = {
   synced: { text: '已同步', className: 'gh-label gh-label-green' },
@@ -15,7 +15,7 @@ const statusLabel = {
 
 export default function RepoList() {
   const navigate = useNavigate()
-  const [repos, setRepos] = useState<Repository[]>([])
+  const [repos, setRepos] = useState<RepositoryList>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,8 +23,8 @@ export default function RepoList() {
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchRepositories()
-      setRepos(data.items)
+      const items = await fetchRepoList()
+      setRepos(items)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载仓库失败')
     } finally {

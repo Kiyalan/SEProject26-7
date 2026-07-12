@@ -1,4 +1,4 @@
-import { projectDisplayName } from '../../config/BaseConfig'
+import { projectDisplayName } from '../config/BaseConfig'
 import { MarkGithubIcon } from '@primer/octicons-react'
 import { Alert } from 'antd'
 import { Navigate, useSearchParams } from 'react-router-dom'

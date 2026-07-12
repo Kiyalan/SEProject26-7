@@ -36,7 +36,7 @@ function toTreeData(nodes: KnowledgeNode[]): DataNode[] {
 }
 
 export default function Knowledge() {
-  const { repoId, setRepoId, repos } = useRepoContext()
+  const { currentRepoId, setCurrentRepo, repoList } = useRepoContext()
   const [loading, setLoading] = useState(false)
   const [building, setBuilding] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -77,29 +77,29 @@ export default function Knowledge() {
   )
 
   useEffect(() => {
-    if (repoId) {
-      loadOverview(repoId)
-      fetchKnowledgePolicy(repoId)
+    if (currentRepoId) {
+      loadOverview(currentRepoId)
+      fetchKnowledgePolicy(currentRepoId)
         .then(setPolicy)
         .catch(() => setPolicy(null))
     }
-  }, [repoId, loadOverview])
+  }, [currentRepoId, loadOverview])
 
   const handleSelectCommit = async (commit: IndexedCommit) => {
-    if (!repoId) return
+    if (!currentRepoId) return
     setSelectedCommit(commit.commitSha)
-    await updateKnowledgeSettings(repoId, { activeCommitSha: commit.commitSha })
-    await loadOverview(repoId, commit.commitSha)
+    await updateKnowledgeSettings(currentRepoId, { activeCommitSha: commit.commitSha })
+    await loadOverview(currentRepoId, commit.commitSha)
   }
 
   const handleBuild = async () => {
-    if (!repoId) return
+    if (!currentRepoId) return
     setBuilding(true)
     setError(null)
     try {
-      await buildKnowledge(repoId, { indexEachCommit, maxCommits })
-      await updateKnowledgeSettings(repoId, { indexEachCommit, maxCommits })
-      await loadOverview(repoId)
+      await buildKnowledge(currentRepoId, { indexEachCommit, maxCommits })
+      await updateKnowledgeSettings(currentRepoId, { indexEachCommit, maxCommits })
+      await loadOverview(currentRepoId)
     } catch (err) {
       setError(err instanceof Error ? err.message : '构建失败')
     } finally {
@@ -108,11 +108,11 @@ export default function Knowledge() {
   }
 
   const handleCompare = async () => {
-    if (!repoId || !compareBase || !compareHead) return
+    if (!currentRepoId || !compareBase || !compareHead) return
     setComparing(true)
     setError(null)
     try {
-      const result = await compareKnowledgeCommits(repoId, compareBase, compareHead)
+      const result = await compareKnowledgeCommits(currentRepoId, compareBase, compareHead)
       setCompareResult(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : '对比失败')
@@ -133,11 +133,11 @@ export default function Knowledge() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <select
             className="gh-btn"
-            value={repoId}
-            onChange={(e) => setRepoId(e.target.value)}
+            value={currentRepoId}
+            onChange={(e) => setCurrentRepo(e.target.value)}
             style={{ minWidth: 180 }}
           >
-            {repos.map((r) => (
+            {repoList.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.fullName}
               </option>

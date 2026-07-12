@@ -6,7 +6,7 @@ import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
 import {
   analyzeIssue,
-  fetchRepository,
+  fetchRepoSingle,
   fetchRepositoryIssue,
 } from '../lib/api'
 import type { GithubIssue, IssueAnalysis } from '../lib/BackendTypes'
@@ -23,7 +23,7 @@ const issueTypeLabels = {
 export default function IssueDetail() {
   const { repoId, issueNumber } = useParams()
   const navigate = useNavigate()
-  const { setRepoId } = useRepoContext()
+  const { setCurrentRepo } = useRepoContext()
   const [issue, setIssue] = useState<GithubIssue | null>(null)
   const [repoName, setRepoName] = useState('')
   const [analysis, setAnalysis] = useState<IssueAnalysis | null>(null)
@@ -31,8 +31,8 @@ export default function IssueDetail() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (repoId) setRepoId(repoId)
-  }, [repoId, setRepoId])
+    if (repoId) setCurrentRepo(repoId)
+  }, [repoId, setCurrentRepo])
 
   useEffect(() => {
     if (!repoId || !issueNumber) return
@@ -48,7 +48,7 @@ export default function IssueDetail() {
       setError(null)
       try {
         const [repo, issueData] = await Promise.all([
-          fetchRepository(repoId!),
+          fetchRepoSingle(repoId!),
           fetchRepositoryIssue(repoId!, num),
         ])
         setRepoName(repo.fullName)

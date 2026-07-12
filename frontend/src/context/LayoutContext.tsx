@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { projectDisplayNameCamel } from '../../config/BaseConfig'
+import { projectDisplayNameCamel } from '../config/BaseConfig'
 
 interface LayoutContextValue {
   leftCollapsed: boolean

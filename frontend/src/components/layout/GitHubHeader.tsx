@@ -1,4 +1,4 @@
-import { projectDisplayName } from '../../../config/BaseConfig'
+import { projectDisplayName } from '../../config/BaseConfig'
 import { MarkGithubIcon, SearchIcon } from '@primer/octicons-react'
 import { Avatar, Input, Select } from 'antd'
 import { useNavigate } from 'react-router-dom'
@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 
 export default function GitHubHeader() {
   const navigate = useNavigate()
-  const { repos, repoId, setRepoId } = useRepoContext()
+  const { repoList, currentRepoId, setCurrentRepo } = useRepoContext()
   const [user, setUser] = useState<GithubUser | null>(null)
   const [search, setSearch] = useState('')
   const [llmOn, setLlmOn] = useState(false)
@@ -57,13 +57,13 @@ export default function GitHubHeader() {
         />
       </div>
 
-      {repos.length > 0 && (
+      {repoList.length > 0 && (
         <Select
-          value={repoId || undefined}
-          onChange={setRepoId}
+          value={currentRepoId || undefined}
+          onChange={setCurrentRepo}
           style={{ width: 220 }}
           placeholder="当前仓库"
-          options={repos.map((r) => ({ value: r.id, label: r.fullName }))}
+          options={repoList.map((r) => ({ value: r.id, label: r.fullName }))}
           showSearch
           optionFilterProp="label"
         />

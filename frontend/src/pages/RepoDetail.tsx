@@ -10,22 +10,22 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
-import { fetchRepository, fetchRepositoryIssues } from '../lib/api'
+import { fetchRepoSingle, fetchRepositoryIssues } from '../lib/api'
 import type { GithubIssue } from '../lib/BackendTypes'
 import type { Repository } from '../lib/FrontendTypes'
 
 export default function RepoDetail() {
   const { repoId } = useParams()
   const navigate = useNavigate()
-  const { setRepoId } = useRepoContext()
+  const { setCurrentRepo } = useRepoContext()
   const [repo, setRepo] = useState<Repository | null>(null)
   const [issues, setIssues] = useState<GithubIssue[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (repoId) setRepoId(repoId)
-  }, [repoId, setRepoId])
+    if (repoId) setCurrentRepo(repoId)
+  }, [repoId, setCurrentRepo])
 
   useEffect(() => {
     if (!repoId) return
@@ -35,7 +35,7 @@ export default function RepoDetail() {
       setError(null)
       try {
         const [repoData, issueData] = await Promise.all([
-          fetchRepository(repoId!),
+          fetchRepoSingle(repoId!),
           fetchRepositoryIssues(repoId!),
         ])
         setRepo(repoData)

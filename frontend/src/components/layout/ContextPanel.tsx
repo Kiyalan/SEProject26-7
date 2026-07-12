@@ -16,15 +16,15 @@ const LANG_COLORS: Record<string, string> = {
 
 export default function ContextPanel() {
   const location = useLocation()
-  const { repoId, currentRepo } = useRepoContext()
+  const { currentRepoId, currentRepo } = useRepoContext()
   const [knowledge, setKnowledge] = useState<Awaited<ReturnType<typeof fetchKnowledge>> | null>(null)
 
   useEffect(() => {
-    if (!repoId) return
-    fetchKnowledge(repoId)
+    if (!currentRepoId) return
+    fetchKnowledge(currentRepoId)
       .then(setKnowledge)
       .catch(() => setKnowledge(null))
-  }, [repoId, location.pathname])
+  }, [currentRepoId, location.pathname])
 
   const showActions = !location.pathname.startsWith('/settings')
 

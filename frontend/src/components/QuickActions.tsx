@@ -1,4 +1,4 @@
-import { projectDisplayNameLower } from '../../config/BaseConfig'
+import { projectDisplayNameLower } from '../config/BaseConfig'
 import { Alert, Modal, Input, message } from 'antd'
 import { useState } from 'react'
 import { useRepoContext } from '../context/RepoContext'
@@ -13,7 +13,7 @@ interface QuickActionsProps {
 }
 
 export default function QuickActions({ compact }: QuickActionsProps) {
-  const { repoId, currentRepo, refreshRepos } = useRepoContext()
+  const { currentRepoId, currentRepo, syncRepoListFromServer } = useRepoContext()
   const [loading, setLoading] = useState<string | null>(null)
   const [nlCommand, setNlCommand] = useState('')
   const [nlResult, setNlResult] = useState<string | null>(null)
@@ -31,7 +31,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
   })
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
-    if (!repoId) {
+    if (!currentRepoId) {
       message.warning('请先选择仓库')
       return
     }
@@ -49,16 +49,16 @@ export default function QuickActions({ compact }: QuickActionsProps) {
 
   const handleSync = () =>
     run('sync', async () => {
-      await buildKnowledge(repoId)
-      await refreshRepos()
+      await buildKnowledge(currentRepoId)
+      await syncRepoListFromServer()
     })
 
   const handleNl = async () => {
-    if (!nlCommand.trim() || !repoId) return
+    if (!nlCommand.trim() || !currentRepoId) return
     setLoading('nl')
     setNlResult(null)
     try {
-      const result = await executeNlCommand(repoId, nlCommand.trim())
+      const result = await executeNlCommand(currentRepoId, nlCommand.trim())
       setNlResult(result.message)
       if (result.success) message.success('命令已执行')
       else message.info(result.message)
@@ -70,19 +70,19 @@ export default function QuickActions({ compact }: QuickActionsProps) {
   }
 
   const handleModalOk = async () => {
-    if (!repoId) return
+    if (!currentRepoId) return
     setLoading(modal.type)
     try {
       if (modal.type === 'branch') {
-        await executeGitAction(repoId, 'create_branch', { branch: form.branch })
+        await executeGitAction(currentRepoId, 'create_branch', { branch: form.branch })
       } else if (modal.type === 'commit') {
-        await executeGitAction(repoId, 'commit_file', {
+        await executeGitAction(currentRepoId, 'commit_file', {
           path: form.path,
           content: form.content,
           message: form.message || `Update ${form.path}`,
         })
       } else {
-        await executeGitAction(repoId, 'create_pr', {
+        await executeGitAction(currentRepoId, 'create_pr', {
           title: form.prTitle,
           body: form.prBody,
           head: form.branch || `${projectDisplayNameLower}-${Date.now()}`,
@@ -97,7 +97,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
     }
   }
 
-  if (!repoId) {
+  if (!currentRepoId) {
     return (
       <div className="gh-box">
         <div className="gh-box-body">

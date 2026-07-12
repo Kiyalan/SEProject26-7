@@ -1,4 +1,4 @@
-import { projectDisplayNameCamel } from '../../config/BaseConfig'
+import { projectDisplayNameCamel } from '../config/BaseConfig'
 
 const TOKEN_KEY = `${projectDisplayNameCamel}GithubToken`
 const USERNAME_KEY = `${projectDisplayNameCamel}GithubUsername`

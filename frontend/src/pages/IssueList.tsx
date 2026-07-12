@@ -22,7 +22,7 @@ const issueTypeLabels = {
 
 export default function IssueList() {
   const navigate = useNavigate()
-  const { repoId, setRepoId, repos, loading: reposLoading } = useRepoContext()
+  const { currentRepoId, setCurrentRepo, repoList, currentRepo, isRepoListPending } = useRepoContext()
   const [issueState, setIssueState] = useState<'open' | 'closed' | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [issues, setIssues] = useState<GithubIssue[]>([])
@@ -33,11 +33,11 @@ export default function IssueList() {
   const [error, setError] = useState<string | null>(null)
 
   const loadIssues = useCallback(async () => {
-    if (!repoId) return
+    if (!currentRepoId) return
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchRepositoryIssues(repoId, { state: issueState, perPage: 30 })
+      const data = await fetchRepositoryIssues(currentRepoId, { state: issueState, perPage: 30 })
       setIssues(data.items)
       setMeta({ openIssuesCount: data.openIssuesCount, repoFullName: data.repoFullName })
       setAnalyses({})
@@ -47,7 +47,7 @@ export default function IssueList() {
     } finally {
       setLoading(false)
     }
-  }, [repoId, issueState])
+  }, [currentRepoId, issueState])
 
   useEffect(() => {
     loadIssues()
@@ -59,9 +59,9 @@ export default function IssueList() {
   }, [issues, analyses, typeFilter])
 
   const handleAnalyzeOne = async (issue: GithubIssue) => {
-    if (!repoId) return
+    if (!currentRepoId) return
     try {
-      const analysis = await analyzeIssue(repoId, issue)
+      const analysis = await analyzeIssue(currentRepoId, issue)
       setAnalyses((prev) => ({ ...prev, [issue.id]: analysis }))
     } catch (err) {
       setError(err instanceof Error ? err.message : '分析失败')
@@ -69,11 +69,11 @@ export default function IssueList() {
   }
 
   const handleAnalyzeAll = async () => {
-    if (!repoId || analyzing || issues.length === 0) return
+    if (!currentRepoId || analyzing || issues.length === 0) return
     setAnalyzing(true)
     setError(null)
     try {
-      const results = await Promise.all(issues.map((issue) => analyzeIssue(repoId, issue)))
+      const results = await Promise.all(issues.map((issue) => analyzeIssue(currentRepoId, issue)))
       const next: Record<string, IssueAnalysis> = {}
       results.forEach((item) => {
         next[item.issueId] = item
@@ -96,7 +96,7 @@ export default function IssueList() {
             href="#"
             onClick={(e) => {
               e.preventDefault()
-              navigate(`/issues/${repoId}/${record.number}`)
+              navigate(`/issues/${currentRepoId}/${record.number}`)
             }}
           >
             #{record.number} {record.title}
@@ -142,7 +142,7 @@ export default function IssueList() {
           <button
             type="button"
             className="gh-btn gh-btn-sm"
-            onClick={() => navigate(`/issues/${repoId}/${record.number}`)}
+            onClick={() => navigate(`/issues/${currentRepoId}/${record.number}`)}
           >
             <EyeIcon size={12} />
             详情
@@ -152,8 +152,6 @@ export default function IssueList() {
     },
   ]
 
-  const currentRepo = repos.find((r) => r.id === repoId)
-
   return (
     <PageShell
       title="Issue 智能分析"
@@ -162,13 +160,13 @@ export default function IssueList() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <select
             className="gh-btn"
-            value={repoId}
-            onChange={(e) => setRepoId(e.target.value)}
+            value={currentRepoId}
+            onChange={(e) => setCurrentRepo(e.target.value)}
             style={{ minWidth: 200 }}
-            disabled={reposLoading}
+            disabled={isRepoListPending}
           >
-            {!repoId && <option value="">选择仓库</option>}
-            {repos.map((r) => (
+            {!currentRepoId && <option value="">选择仓库</option>}
+            {repoList.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.fullName}
               </option>
@@ -187,13 +185,13 @@ export default function IssueList() {
               </option>
             ))}
           </select>
-          <button type="button" className="gh-btn" onClick={loadIssues} disabled={loading || !repoId}>
+          <button type="button" className="gh-btn" onClick={loadIssues} disabled={loading || !currentRepoId}>
             <SyncIcon size={12} />
           </button>
           <button
             type="button"
             className="gh-btn gh-btn-primary"
-            disabled={analyzing || !repoId || issues.length === 0}
+            disabled={analyzing || !currentRepoId || issues.length === 0}
             onClick={handleAnalyzeAll}
           >
             {analyzing ? '分析中…' : '分析当前列表'}
@@ -201,19 +199,19 @@ export default function IssueList() {
         </div>
       }
     >
-      {reposLoading && (
+      {isRepoListPending && (
         <div style={{ textAlign: 'center', padding: 24 }}>
           <Spin />
         </div>
       )}
 
-      {!reposLoading && !repoId && (
+      {!isRepoListPending && !currentRepoId && (
         <Alert type="info" showIcon message="请先在顶栏或此处选择仓库" style={{ marginBottom: 16 }} />
       )}
 
       {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
 
-      {repoId && !loading && issues.length === 0 && !error && (
+      {currentRepoId && !loading && issues.length === 0 && !error && (
         <Alert
           type="warning"
           showIcon
@@ -244,7 +242,7 @@ export default function IssueList() {
           dataSource={filtered}
           loading={loading}
           pagination={{ pageSize: 10 }}
-          locale={{ emptyText: repoId ? '暂无 Issue 数据' : '请选择仓库' }}
+          locale={{ emptyText: currentRepoId ? '暂无 Issue 数据' : '请选择仓库' }}
         />
       </div>
     </PageShell>

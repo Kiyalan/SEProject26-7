@@ -1,5 +1,5 @@
 import { getToken, clearAuth } from './auth'
-import type { Repository } from './FrontendTypes'
+import type { Repository, RepositoryList } from './FrontendTypes'
 import type {
   ChatResponse,
   CommitCompareResult,
@@ -66,13 +66,14 @@ export function fetchCurrentUser() {
   return apiFetch<GithubUser>('/api/me')
 }
 
-export function fetchRepositories(page = 1) {
-  return apiFetch<{ items: Repository[]; page: number; perPage: number }>(
+export async function fetchRepoList(page = 1): Promise<RepositoryList> {
+  const data = await apiFetch<{ items: RepositoryList; page: number; perPage: number }>(
     `/api/repos?page=${page}&per_page=50`,
   )
+  return data.items
 }
 
-export function fetchRepository(repoId: string) {
+export function fetchRepoSingle(repoId: string) {
   return apiFetch<Repository>(`/api/repos/${repoId}`)
 }
 

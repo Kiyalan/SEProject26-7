@@ -13,6 +13,8 @@ export interface Repository {
   defaultBranch?: string
 }
 
+export type RepositoryList = Repository[]
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'

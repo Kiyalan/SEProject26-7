@@ -1,4 +1,4 @@
-import { projectDisplayName } from '../../config/BaseConfig'
+import { projectDisplayName } from '../config/BaseConfig'
 import { Alert, Input } from 'antd'
 import { PaperAirplaneIcon, PersonIcon } from '@primer/octicons-react'
 import { useEffect, useState } from 'react'
@@ -14,7 +14,7 @@ const questionTypeMap = {
 }
 
 export default function Chat() {
-  const { repoId, setRepoId, repos } = useRepoContext()
+  const { currentRepoId, setCurrentRepo, repoList } = useRepoContext()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -28,14 +28,14 @@ export default function Chat() {
   }, [])
 
   useEffect(() => {
-    if (!repoId) return
-    fetchKnowledge(repoId)
+    if (!currentRepoId) return
+    fetchKnowledge(currentRepoId)
       .then((data) => setKnowledgeReady(data.status === 'ready' && data.chunkCount > 0))
       .catch(() => setKnowledgeReady(false))
-  }, [repoId])
+  }, [currentRepoId])
 
   const handleSend = async () => {
-    if (!input.trim() || !repoId || loading) return
+    if (!input.trim() || !currentRepoId || loading) return
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
@@ -47,7 +47,7 @@ export default function Chat() {
     setLoading(true)
 
     try {
-      const result = await sendChatMessage(repoId, userMsg.content)
+      const result = await sendChatMessage(currentRepoId, userMsg.content)
       setMessages((prev) => [
         ...prev,
         {
@@ -83,11 +83,11 @@ export default function Chat() {
       actions={
         <select
           className="gh-btn"
-          value={repoId}
-          onChange={(e) => setRepoId(e.target.value)}
+          value={currentRepoId}
+          onChange={(e) => setCurrentRepo(e.target.value)}
           style={{ minWidth: 220 }}
         >
-          {repos.map((r) => (
+          {repoList.map((r) => (
             <option key={r.id} value={r.id}>
               {r.fullName}
             </option>
@@ -172,7 +172,7 @@ export default function Chat() {
               type="button"
               className="gh-btn gh-btn-primary"
               onClick={handleSend}
-              disabled={loading || !repoId}
+              disabled={loading || !currentRepoId}
               style={{ height: 40, padding: '0 16px' }}
             >
               <PaperAirplaneIcon size={16} />
