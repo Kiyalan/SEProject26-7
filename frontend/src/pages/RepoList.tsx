@@ -1,11 +1,10 @@
 import { Alert, Spin } from 'antd'
 import { SyncIcon, MarkGithubIcon } from '@primer/octicons-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
-import { fetchRepoList } from '../lib/api'
+import { useRepoContext } from '../context/RepoContext'
 import { getUsername } from '../lib/auth'
-import type { RepositoryList } from '../lib/FrontendTypes'
 
 const statusLabel = {
   synced: { text: '已同步', className: 'gh-label gh-label-green' },
@@ -15,31 +14,23 @@ const statusLabel = {
 
 export default function RepoList() {
   const navigate = useNavigate()
-  const [repos, setRepos] = useState<RepositoryList>([])
-  const [loading, setLoading] = useState(true)
+  const { repoList, isRepoListPending, isRepoListFetching, syncRepoList } = useRepoContext()
   const [error, setError] = useState<string | null>(null)
+  const loading = isRepoListPending || isRepoListFetching
 
   const loadRepos = useCallback(async () => {
-    setLoading(true)
     setError(null)
     try {
-      const items = await fetchRepoList()
-      setRepos(items)
+      await syncRepoList()
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载仓库失败')
-    } finally {
-      setLoading(false)
     }
-  }, [])
-
-  useEffect(() => {
-    loadRepos()
-  }, [loadRepos])
+  }, [syncRepoList])
 
   return (
     <PageShell
       title="你的仓库"
-      description={`已连接 GitHub 账号 ${getUsername()} · 共 ${repos.length} 个仓库`}
+      description={`已连接 GitHub 账号 ${getUsername()} · 共 ${repoList.length} 个仓库`}
       actions={
         <button type="button" className="gh-btn" onClick={loadRepos} disabled={loading}>
           <SyncIcon size={14} />
@@ -52,18 +43,18 @@ export default function RepoList() {
       <div className="gh-box">
         <div className="gh-box-header">
           <span>Repositories</span>
-          <span className="gh-muted" style={{ fontWeight: 400 }}>{repos.length}</span>
+          <span className="gh-muted" style={{ fontWeight: 400 }}>{repoList.length}</span>
         </div>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 48 }}>
             <Spin />
           </div>
-        ) : repos.length === 0 ? (
+        ) : repoList.length === 0 ? (
           <div className="gh-box-body">
             <p className="gh-muted">暂无仓库，请确认 GitHub OAuth 权限包含 repo 读取。</p>
           </div>
         ) : (
-          repos.map((repo) => (
+          repoList.map((repo) => (
             <div key={repo.id} className="gh-repo-list-item">
               <div style={{ flex: 1, minWidth: 0 }}>
                 <a

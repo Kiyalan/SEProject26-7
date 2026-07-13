@@ -4,11 +4,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
-import {
-  analyzeIssue,
-  fetchRepoSingle,
-  fetchRepositoryIssue,
-} from '../lib/api'
+import { analyzeIssue, fetchRepositoryIssue } from '../lib/api'
 import type { GithubIssue, IssueAnalysis } from '../lib/BackendTypes'
 
 const issueTypeLabels = {
@@ -23,7 +19,7 @@ const issueTypeLabels = {
 export default function IssueDetail() {
   const { repoId, issueNumber } = useParams()
   const navigate = useNavigate()
-  const { setCurrentRepo } = useRepoContext()
+  const { repoList, setCurrentRepo, syncRepo } = useRepoContext()
   const [issue, setIssue] = useState<GithubIssue | null>(null)
   const [repoName, setRepoName] = useState('')
   const [analysis, setAnalysis] = useState<IssueAnalysis | null>(null)
@@ -47,11 +43,16 @@ export default function IssueDetail() {
       setLoading(true)
       setError(null)
       try {
-        const [repo, issueData] = await Promise.all([
-          fetchRepoSingle(repoId!),
+        const cachedRepo = repoList.find((r) => r.id === repoId)
+        const repoNamePromise = cachedRepo
+          ? Promise.resolve(cachedRepo.fullName)
+          : syncRepo(repoId!).then((r) => r.fullName)
+
+        const [name, issueData] = await Promise.all([
+          repoNamePromise,
           fetchRepositoryIssue(repoId!, num),
         ])
-        setRepoName(repo.fullName)
+        setRepoName(name)
         setIssue(issueData)
         setAnalysis(await analyzeIssue(repoId!, issueData))
       } catch (err) {
@@ -61,7 +62,7 @@ export default function IssueDetail() {
       }
     }
     load()
-  }, [repoId, issueNumber])
+  }, [repoId, issueNumber, repoList, syncRepo])
 
   if (loading) {
     return (

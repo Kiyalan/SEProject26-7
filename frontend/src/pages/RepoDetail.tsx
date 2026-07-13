@@ -10,22 +10,18 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
-import { fetchRepoSingle, fetchRepositoryIssues } from '../lib/api'
+import { fetchRepositoryIssues } from '../lib/api'
 import type { GithubIssue } from '../lib/BackendTypes'
 import type { Repository } from '../lib/FrontendTypes'
 
 export default function RepoDetail() {
   const { repoId } = useParams()
   const navigate = useNavigate()
-  const { setCurrentRepo } = useRepoContext()
+  const { syncRepo } = useRepoContext()
   const [repo, setRepo] = useState<Repository | null>(null)
   const [issues, setIssues] = useState<GithubIssue[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (repoId) setCurrentRepo(repoId)
-  }, [repoId, setCurrentRepo])
 
   useEffect(() => {
     if (!repoId) return
@@ -35,7 +31,7 @@ export default function RepoDetail() {
       setError(null)
       try {
         const [repoData, issueData] = await Promise.all([
-          fetchRepoSingle(repoId!),
+          syncRepo(repoId!),
           fetchRepositoryIssues(repoId!),
         ])
         setRepo(repoData)
@@ -48,7 +44,7 @@ export default function RepoDetail() {
     }
 
     load()
-  }, [repoId])
+  }, [repoId, syncRepo])
 
   if (loading) {
     return (
