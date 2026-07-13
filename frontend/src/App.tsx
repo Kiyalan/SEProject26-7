@@ -11,9 +11,21 @@ import RepoDetail from './pages/RepoDetail'
 import RepoList from './pages/RepoList'
 import Settings from './pages/Settings'
 
+import AdminProtectedRoute from './components/AdminProtectedRoute'
+import AdminLayout from '../../frontend/src/layouts/AdminLayout'
+import AdminAuditLogs from './pages/admin/AdminAuditLogs'
+import AdminDashboard from './pages/admin/AdminDashboard'
+import AdminDataIntegrity from './pages/admin/AdminDataIntegrity'
+import AdminFaqExport from './pages/admin/AdminFaqExport'
+import AdminLogin from './pages/admin/AdminLogin'
+import AdminSyncFailures from './pages/admin/AdminSyncFailures'
+import AdminSyncLogs from './pages/admin/AdminSyncLogs'
+import AdminUsers from './pages/admin/AdminUsers'
+
 export default function App() {
   return (
     <Routes>
+      {/* User routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/oauth/success" element={<OAuthSuccess />} />
       <Route element={<ProtectedRoute />}>
@@ -28,6 +40,20 @@ export default function App() {
           <Route path="settings" element={<Settings />} />
         </Route>
       </Route>
+      {/* Admin routes */}
+      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route element={<AdminProtectedRoute />}>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminDashboard />} />
+          <Route path="sync-logs" element={<AdminSyncLogs />} />
+          <Route path="data-integrity" element={<AdminDataIntegrity />} />
+          <Route path="sync-failures" element={<AdminSyncFailures />} />
+          <Route path="faq-export" element={<AdminFaqExport />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="audit-logs" element={<AdminAuditLogs />} />
+        </Route>
+      </Route>
+      {/* Catch-all route */}
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   )
