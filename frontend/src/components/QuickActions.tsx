@@ -13,7 +13,7 @@ interface QuickActionsProps {
 }
 
 export default function QuickActions({ compact }: QuickActionsProps) {
-  const { currentRepoId, currentRepo, syncRepoListFromServer } = useRepoContext()
+  const { currentRepoId, currentRepo, syncRepoList } = useRepoContext()
   const [loading, setLoading] = useState<string | null>(null)
   const [nlCommand, setNlCommand] = useState('')
   const [nlResult, setNlResult] = useState<string | null>(null)
@@ -50,7 +50,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
   const handleSync = () =>
     run('sync', async () => {
       await buildKnowledge(currentRepoId)
-      await syncRepoListFromServer()
+      await syncRepoList()
     })
 
   const handleNl = async () => {
