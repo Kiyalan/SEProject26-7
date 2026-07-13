@@ -1,6 +1,6 @@
 import { MarkGithubIcon } from '@primer/octicons-react'
 import { Alert } from 'antd'
-import { Navigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { isAuthenticated, startGithubLogin } from '../lib/auth'
 
 export default function Login() {
@@ -43,8 +43,11 @@ export default function Login() {
             使用 GitHub 登录
           </button>
 
-          <p className="gh-muted" style={{ fontSize: 12, marginTop: 16, marginBottom: 0 }}>
+          <p className="gh-muted" style={{ fontSize: 12, marginTop: 16, marginBottom: 8 }}>
             首次使用需在 backend/.env 配置 GitHub OAuth App
+          </p>
+          <p className="gh-muted" style={{ fontSize: 12, margin: 0 }}>
+            系统管理员请前往 <Link to="/admin/login">运维后台登录</Link>
           </p>
         </div>
       </div>
