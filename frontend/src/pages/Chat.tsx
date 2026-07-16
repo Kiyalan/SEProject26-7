@@ -23,7 +23,7 @@ export default function Chat() {
 
   useEffect(() => {
     fetchLlmConfig()
-      .then((cfg) => setLlmEnabled(cfg.configured))
+      .then((cfg) => setLlmEnabled(Boolean(cfg.apiKey?.trim())))
       .catch(() => setLlmEnabled(false))
   }, [])
 

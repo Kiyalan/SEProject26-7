@@ -15,10 +15,16 @@ export interface GithubIssue {
   comments?: number
 }
 
-export interface GithubUser {
+export interface UserProfile {
   login: string
   name: string | null
   avatarUrl: string
+}
+
+export interface LlmConfig {
+  baseUrl: string
+  apiKey: string
+  model: string
 }
 
 export interface IndexedCommit {

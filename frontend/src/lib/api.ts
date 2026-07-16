@@ -4,12 +4,13 @@ import type {
   ChatResponse,
   CommitCompareResult,
   GithubIssue,
-  GithubUser,
   IndexedCommit,
   IssueAnalysis,
   KnowledgeOverview,
   KnowledgeSettings,
+  LlmConfig,
   PortfolioOverview,
+  UserProfile,
 } from './BackendTypes'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
@@ -62,8 +63,8 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return JSON.parse(text) as T
 }
 
-export function fetchCurrentUser() {
-  return apiFetch<GithubUser>('/api/me')
+export function fetchUserProfile() {
+  return apiFetch<UserProfile>('/api/user/profile')
 }
 
 export async function fetchRepoList(page = 1): Promise<RepositoryList> {
@@ -114,10 +115,6 @@ export function analyzeIssue(repoId: string, issue: GithubIssue) {
     method: 'POST',
     body: JSON.stringify({ repoId, issue }),
   })
-}
-
-export function fetchIssueAnalysis(issueId: string) {
-  return apiFetch<IssueAnalysis>(`/api/issues/${issueId}/analysis`)
 }
 
 export function buildKnowledge(
@@ -171,22 +168,14 @@ export function sendChatMessage(repoId: string, message: string) {
 }
 
 export function fetchLlmConfig() {
-  return apiFetch<{
-    configured: boolean
-    model: string
-    baseUrl?: string
-    provider?: string
-  }>('/api/config/llm')
+  return apiFetch<LlmConfig>('/api/user/setting/llmconfig')
 }
 
-export function fetchBackendHealth() {
-  return apiFetch<{
-    pid: number
-    startedAt: string
-    llmConfigured: boolean
-    llmModel: string
-    llmProvider: string
-  }>('/api/health')
+export function setLlmConfig(config: LlmConfig) {
+  return apiFetch<LlmConfig>('/api/user/setting/llmconfig/set', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  })
 }
 
 export function fetchPortfolioOverview() {

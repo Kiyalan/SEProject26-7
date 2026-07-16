@@ -1,0 +1,1204 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RepoPilot Frontend–Backend API",
+    "description": "Contract of HTTP APIs that the frontend (`frontend/src/lib/api.ts`, `auth.ts`) calls against the backend. Derived from frontend clients and response TypeScript types.",
+    "version": "3.1.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Local backend (dev). Vite proxies `/api` and `/auth` from :5173 to this origin."
+    }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "GitHub OAuth entry" },
+    { "name": "User", "description": "Current user profile and settings" },
+    { "name": "Repositories", "description": "Repository listing and detail" },
+    { "name": "Issues", "description": "Issues and LLM analysis" },
+    { "name": "Knowledge", "description": "Per-repo knowledge index" },
+    { "name": "Chat", "description": "Repo Q&A chat" },
+    { "name": "Portfolio", "description": "Multi-repo portfolio overview" },
+    { "name": "Actions", "description": "Git / NL quick actions" }
+  ],
+  "paths": {
+    "/auth/github": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Start GitHub OAuth login",
+        "description": "Browser navigation (not apiFetch). Redirects to GitHub authorize, then backend completes via `/auth/callback` and returns the user to the frontend OAuth success page with token query params.",
+        "operationId": "startGithubLogin",
+        "responses": {
+          "302": {
+            "description": "Redirect to GitHub OAuth authorize URL"
+          },
+          "500": {
+            "description": "OAuth env (client id/secret) not configured",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/profile": {
+      "get": {
+        "tags": ["User"],
+        "summary": "Get current GitHub user profile",
+        "operationId": "fetchUserProfile",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Authenticated user profile",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserProfile" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/user/setting/llmconfig": {
+      "get": {
+        "tags": ["User"],
+        "summary": "Get LLM configuration",
+        "operationId": "fetchLlmConfig",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Current LLM baseUrl, apiKey, and model",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LlmConfig" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/user/setting/llmconfig/set": {
+      "post": {
+        "tags": ["User"],
+        "summary": "Save LLM configuration",
+        "operationId": "setLlmConfig",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LlmConfig" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved LLM configuration",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LlmConfig" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/repos": {
+      "get": {
+        "tags": ["Repositories"],
+        "summary": "List repositories for the authenticated user",
+        "operationId": "fetchRepoList",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Repository list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RepositoryListResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/repos/{repoId}": {
+      "get": {
+        "tags": ["Repositories"],
+        "summary": "Get a single repository",
+        "operationId": "fetchRepoSingle",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "responses": {
+          "200": {
+            "description": "Repository detail",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Repository" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/issues": {
+      "get": {
+        "tags": ["Issues"],
+        "summary": "List issues in a repository",
+        "operationId": "fetchRepositoryIssues",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RepoId" },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["open", "closed", "all"],
+              "default": "all"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Issue list (PRs excluded)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IssueListResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/issues/{issueNumber}": {
+      "get": {
+        "tags": ["Issues"],
+        "summary": "Get a single issue",
+        "operationId": "fetchRepositoryIssue",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RepoId" },
+          {
+            "name": "issueNumber",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Issue detail",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GithubIssue" }
+              }
+            }
+          },
+          "400": {
+            "description": "Number refers to a Pull Request, not an Issue",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/issues/analyze": {
+      "post": {
+        "tags": ["Issues"],
+        "summary": "Analyze an issue with LLM / heuristics",
+        "operationId": "analyzeIssue",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/IssueAnalyzeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Analysis result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IssueAnalysis" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/policy": {
+      "get": {
+        "tags": ["Knowledge"],
+        "summary": "Get knowledge-indexing policy",
+        "operationId": "fetchKnowledgePolicy",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "responses": {
+          "200": {
+            "description": "Indexing policy and limits",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/KnowledgePolicy" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/build": {
+      "post": {
+        "tags": ["Knowledge"],
+        "summary": "Build / rebuild knowledge index for a repo",
+        "operationId": "buildKnowledge",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/KnowledgeBuildRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Build result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/KnowledgeBuildResult" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge": {
+      "get": {
+        "tags": ["Knowledge"],
+        "summary": "Get knowledge overview for a repo",
+        "operationId": "fetchKnowledge",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RepoId" },
+          {
+            "name": "commit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Optional commit SHA to view a specific indexed snapshot"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Knowledge overview",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/KnowledgeOverview" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/commits": {
+      "get": {
+        "tags": ["Knowledge"],
+        "summary": "List indexed commits",
+        "description": "Exported in frontend `api.ts` (`fetchKnowledgeCommits`); may not be used by current UI pages.",
+        "operationId": "fetchKnowledgeCommits",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "responses": {
+          "200": {
+            "description": "Indexed commit list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IndexedCommitListResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/compare": {
+      "get": {
+        "tags": ["Knowledge"],
+        "summary": "Compare two indexed commits",
+        "operationId": "compareKnowledgeCommits",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/RepoId" },
+          {
+            "name": "base",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Base commit SHA"
+          },
+          {
+            "name": "head",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Head commit SHA"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compare result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommitCompareResult" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/settings": {
+      "put": {
+        "tags": ["Knowledge"],
+        "summary": "Update knowledge index settings",
+        "operationId": "updateKnowledgeSettings",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/KnowledgeSettingsRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated settings",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/KnowledgeSettings" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "tags": ["Chat"],
+        "summary": "Ask a question about a repository",
+        "operationId": "sendChatMessage",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chat answer with citations",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChatResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/portfolio/overview": {
+      "get": {
+        "tags": ["Portfolio"],
+        "summary": "Multi-repo portfolio overview",
+        "operationId": "fetchPortfolioOverview",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Portfolio summary",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PortfolioOverview" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/actions": {
+      "post": {
+        "tags": ["Actions"],
+        "summary": "Execute a structured git action",
+        "description": "Frontend usages: `create_branch` ({branch}), `commit_file` ({path, content, message}), `create_pr` ({title, body, head}). Backend also supports `sync_knowledge`.",
+        "operationId": "executeGitAction",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GitActionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Action-specific result object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown action or missing params",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/repos/{repoId}/actions/nl": {
+      "post": {
+        "tags": ["Actions"],
+        "summary": "Execute a natural-language git command",
+        "operationId": "executeNlCommand",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NlCommandRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Parsed action result (failures may still return HTTP 200 with success=false)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/NlCommandResult" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "GitHub OAuth access token",
+        "description": "Token from GitHub OAuth (`Authorization: Bearer <token>`). Frontend stores it in localStorage and sends it via `apiFetch` when present."
+      }
+    },
+    "parameters": {
+      "RepoId": {
+        "name": "repoId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "GitHub repository numeric id (string in frontend paths)"
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "Internal server error",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ErrorDetail": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "msg": { "type": "string" }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              { "type": "object", "additionalProperties": true }
+            ]
+          }
+        }
+      },
+      "UserProfile": {
+        "type": "object",
+        "required": ["login", "name", "avatarUrl"],
+        "properties": {
+          "login": { "type": "string" },
+          "name": { "type": ["string", "null"] },
+          "avatarUrl": { "type": "string", "format": "uri" }
+        }
+      },
+      "LlmConfig": {
+        "type": "object",
+        "required": ["baseUrl", "apiKey", "model"],
+        "properties": {
+          "baseUrl": { "type": "string" },
+          "apiKey": { "type": "string" },
+          "model": { "type": "string" }
+        }
+      },
+      "Repository": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "fullName",
+          "description",
+          "stars",
+          "openIssues",
+          "language",
+          "lastSync",
+          "syncStatus"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "fullName": { "type": "string" },
+          "description": { "type": "string" },
+          "stars": { "type": "integer" },
+          "openIssues": { "type": "integer" },
+          "language": { "type": "string" },
+          "lastSync": { "type": "string" },
+          "syncStatus": {
+            "type": "string",
+            "enum": ["synced", "syncing", "error"]
+          },
+          "htmlUrl": { "type": "string", "format": "uri" },
+          "private": { "type": "boolean" },
+          "defaultBranch": { "type": "string" }
+        }
+      },
+      "RepositoryListResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Repository" }
+          }
+        }
+      },
+      "GithubIssue": {
+        "type": "object",
+        "required": [
+          "id",
+          "repoId",
+          "number",
+          "title",
+          "body",
+          "author",
+          "createdAt",
+          "labels",
+          "htmlUrl"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "repoId": { "type": "string" },
+          "number": { "type": "integer" },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "state": { "type": "string" },
+          "author": { "type": "string" },
+          "createdAt": { "type": "string" },
+          "updatedAt": { "type": "string" },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "htmlUrl": { "type": "string", "format": "uri" },
+          "comments": { "type": "integer" }
+        }
+      },
+      "IssueListResponse": {
+        "type": "object",
+        "required": ["items", "total", "repoFullName", "openIssuesCount", "state"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/GithubIssue" }
+          },
+          "total": { "type": "integer" },
+          "repoFullName": { "type": "string" },
+          "openIssuesCount": { "type": "integer" },
+          "state": { "type": "string" }
+        }
+      },
+      "IssueAnalyzeRequest": {
+        "type": "object",
+        "required": ["repoId", "issue"],
+        "properties": {
+          "repoId": { "type": "string" },
+          "issue": { "$ref": "#/components/schemas/GithubIssue" }
+        }
+      },
+      "FileCitation": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": { "type": "string" },
+          "line": { "type": "integer" }
+        }
+      },
+      "IssueAnalysis": {
+        "type": "object",
+        "required": [
+          "issueId",
+          "repoId",
+          "number",
+          "title",
+          "type",
+          "typeLabel",
+          "confidence",
+          "summary",
+          "suggestedReply",
+          "reason",
+          "relatedFiles",
+          "analyzedAt",
+          "needsCodeChange"
+        ],
+        "properties": {
+          "issueId": { "type": "string" },
+          "repoId": { "type": "string" },
+          "number": { "type": "integer" },
+          "title": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "usage_question",
+              "duplicate",
+              "insufficient_info",
+              "bug_fix",
+              "feature_request",
+              "other"
+            ]
+          },
+          "typeLabel": { "type": "string" },
+          "confidence": { "type": "number" },
+          "summary": { "type": "string" },
+          "suggestedReply": { "type": "string" },
+          "reason": { "type": "string" },
+          "relatedFiles": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/FileCitation" }
+          },
+          "analyzedAt": { "type": "string" },
+          "needsCodeChange": { "type": "boolean" },
+          "llmEnhanced": { "type": "boolean" }
+        }
+      },
+      "KnowledgePolicy": {
+        "type": "object",
+        "required": [
+          "required",
+          "recommended",
+          "excludedDirs",
+          "storeOnly",
+          "displayOnly",
+          "featureMatrix",
+          "limits"
+        ],
+        "properties": {
+          "required": { "type": "array", "items": { "type": "string" } },
+          "recommended": { "type": "array", "items": { "type": "string" } },
+          "excludedDirs": { "type": "array", "items": { "type": "string" } },
+          "storeOnly": { "type": "array", "items": { "type": "string" } },
+          "displayOnly": { "type": "array", "items": { "type": "string" } },
+          "featureMatrix": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "needs": { "type": "array", "items": { "type": "string" } },
+                "not_needed": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
+          "limits": {
+            "type": "object",
+            "additionalProperties": { "type": "number" }
+          },
+          "dataSourceTiers": { "type": "object", "additionalProperties": true },
+          "multiRepoPortfolio": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "KnowledgeBuildRequest": {
+        "type": "object",
+        "properties": {
+          "indexEachCommit": { "type": "boolean", "default": false },
+          "maxCommits": { "type": "integer", "default": 30 },
+          "commitShas": {
+            "type": ["array", "null"],
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "DeduplicationStats": {
+        "type": "object",
+        "properties": {
+          "indexedCommits": { "type": "integer" },
+          "uniqueFileBlobs": { "type": "integer" },
+          "uniqueChunkBlobs": { "type": "integer" },
+          "totalBlobBytes": { "type": "integer" },
+          "fileReferences": { "type": "integer" }
+        }
+      },
+      "KnowledgeBuildResult": {
+        "type": "object",
+        "required": [
+          "repoId",
+          "indexedCommits",
+          "commits",
+          "activeCommitSha",
+          "status"
+        ],
+        "properties": {
+          "repoId": { "type": "string" },
+          "fullName": { "type": "string" },
+          "indexedCommits": { "type": "integer" },
+          "commits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["commitSha", "shortSha", "message"],
+              "properties": {
+                "commitSha": { "type": "string" },
+                "shortSha": { "type": "string" },
+                "message": { "type": "string" }
+              }
+            }
+          },
+          "activeCommitSha": { "type": "string" },
+          "deduplication": { "$ref": "#/components/schemas/DeduplicationStats" },
+          "status": { "type": "string" }
+        }
+      },
+      "KnowledgeNode": {
+        "type": "object",
+        "required": ["key", "title", "type"],
+        "properties": {
+          "key": { "type": "string" },
+          "title": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["folder", "file", "module"]
+          },
+          "children": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/KnowledgeNode" }
+          }
+        }
+      },
+      "IndexedCommit": {
+        "type": "object",
+        "required": [
+          "commitSha",
+          "shortSha",
+          "message",
+          "author",
+          "committedAt",
+          "indexedAt",
+          "fileCount",
+          "chunkCount",
+          "status"
+        ],
+        "properties": {
+          "commitSha": { "type": "string" },
+          "shortSha": { "type": "string" },
+          "parentSha": { "type": "string" },
+          "message": { "type": "string" },
+          "author": { "type": "string" },
+          "committedAt": { "type": "string" },
+          "indexedAt": { "type": "string" },
+          "fileCount": { "type": "integer" },
+          "chunkCount": { "type": "integer" },
+          "status": { "type": "string" }
+        }
+      },
+      "IndexedCommitListResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/IndexedCommit" }
+          }
+        }
+      },
+      "KnowledgeSettings": {
+        "type": "object",
+        "required": ["indexEachCommit", "maxCommits", "activeCommitSha"],
+        "properties": {
+          "indexEachCommit": { "type": "boolean" },
+          "maxCommits": { "type": "integer" },
+          "activeCommitSha": { "type": "string" }
+        }
+      },
+      "KnowledgeSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "indexEachCommit": { "type": ["boolean", "null"] },
+          "maxCommits": { "type": ["integer", "null"] },
+          "activeCommitSha": { "type": ["string", "null"] }
+        }
+      },
+      "KnowledgeOverview": {
+        "type": "object",
+        "required": [
+          "repoId",
+          "status",
+          "fileCount",
+          "chunkCount",
+          "tree",
+          "modules",
+          "dependencies"
+        ],
+        "properties": {
+          "repoId": { "type": "string" },
+          "fullName": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["not_indexed", "indexing", "ready", "idle"]
+          },
+          "indexedAt": { "type": "string" },
+          "fileCount": { "type": "integer" },
+          "chunkCount": { "type": "integer" },
+          "tree": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/KnowledgeNode" }
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "desc", "files", "deps"],
+              "properties": {
+                "name": { "type": "string" },
+                "desc": { "type": "string" },
+                "files": { "type": "integer" },
+                "deps": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
+          "dependencies": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "summary": { "type": "string" },
+          "languages": {
+            "type": "object",
+            "additionalProperties": { "type": "number" }
+          },
+          "readmePath": { "type": "string" },
+          "readmePreview": { "type": "string" },
+          "commitSha": { "type": "string" },
+          "shortSha": { "type": "string" },
+          "topics": { "type": "array", "items": { "type": "string" } },
+          "license": { "type": "string" },
+          "indexedFiles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "size", "language"],
+              "properties": {
+                "path": { "type": "string" },
+                "size": { "type": "integer" },
+                "language": { "type": "string" }
+              }
+            }
+          },
+          "commits": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/IndexedCommit" }
+          },
+          "settings": { "$ref": "#/components/schemas/KnowledgeSettings" },
+          "deduplication": { "$ref": "#/components/schemas/DeduplicationStats" },
+          "storageModel": {
+            "type": "object",
+            "properties": {
+              "displayed": { "type": "array", "items": { "type": "string" } },
+              "databaseOnly": { "type": "array", "items": { "type": "string" } },
+              "dedupStrategy": { "type": "string" }
+            }
+          }
+        }
+      },
+      "CommitCompareResult": {
+        "type": "object",
+        "required": [
+          "baseSha",
+          "headSha",
+          "baseMessage",
+          "headMessage",
+          "added",
+          "removed",
+          "modified",
+          "unchanged",
+          "sharedBlobCount",
+          "previews"
+        ],
+        "properties": {
+          "baseSha": { "type": "string" },
+          "headSha": { "type": "string" },
+          "baseMessage": { "type": "string" },
+          "headMessage": { "type": "string" },
+          "added": { "type": "array", "items": { "type": "string" } },
+          "removed": { "type": "array", "items": { "type": "string" } },
+          "modified": { "type": "array", "items": { "type": "string" } },
+          "unchanged": { "type": "integer" },
+          "sharedBlobCount": { "type": "integer" },
+          "previews": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "diff"],
+              "properties": {
+                "path": { "type": "string" },
+                "diff": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": ["repoId", "message"],
+        "properties": {
+          "repoId": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "required": ["answer", "questionType", "citations", "llmEnabled"],
+        "properties": {
+          "answer": { "type": "string" },
+          "questionType": {
+            "type": "string",
+            "enum": ["what", "where", "how"]
+          },
+          "citations": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/FileCitation" }
+          },
+          "llmEnabled": { "type": "boolean" }
+        }
+      },
+      "PortfolioOverview": {
+        "type": "object",
+        "required": [
+          "summary",
+          "languageBreakdown",
+          "clusters",
+          "timeline",
+          "repos",
+          "notes"
+        ],
+        "properties": {
+          "summary": {
+            "type": "object",
+            "required": [
+              "repoCount",
+              "indexedCount",
+              "indexRate",
+              "totalStars",
+              "totalOpenIssues",
+              "totalIndexedFiles",
+              "totalChunks"
+            ],
+            "properties": {
+              "repoCount": { "type": "integer" },
+              "indexedCount": { "type": "integer" },
+              "indexRate": { "type": "number" },
+              "totalStars": { "type": "integer" },
+              "totalOpenIssues": { "type": "integer" },
+              "totalIndexedFiles": { "type": "integer" },
+              "totalChunks": { "type": "integer" }
+            }
+          },
+          "languageBreakdown": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["language", "count", "percent"],
+              "properties": {
+                "language": { "type": "string" },
+                "count": { "type": "integer" },
+                "percent": { "type": "number" }
+              }
+            }
+          },
+          "clusters": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["fullName", "pushedAt", "indexedAt"],
+              "properties": {
+                "fullName": { "type": "string" },
+                "pushedAt": { "type": "string" },
+                "indexedAt": { "type": "string" }
+              }
+            }
+          },
+          "repos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "repoId",
+                "fullName",
+                "language",
+                "stars",
+                "openIssues",
+                "pushedAt",
+                "knowledge"
+              ],
+              "properties": {
+                "repoId": { "type": "string" },
+                "fullName": { "type": "string" },
+                "language": { "type": "string" },
+                "stars": { "type": "integer" },
+                "openIssues": { "type": "integer" },
+                "pushedAt": { "type": "string" },
+                "knowledge": {
+                  "type": "object",
+                  "required": [
+                    "indexed",
+                    "indexedAt",
+                    "fileCount",
+                    "chunkCount",
+                    "commitSnapshots"
+                  ],
+                  "properties": {
+                    "indexed": { "type": "boolean" },
+                    "indexedAt": { "type": "string" },
+                    "fileCount": { "type": "integer" },
+                    "chunkCount": { "type": "integer" },
+                    "commitSnapshots": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "GitActionRequest": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "One of: create_branch, commit_file, create_pr, sync_knowledge",
+            "enum": ["create_branch", "commit_file", "create_pr", "sync_knowledge"]
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "default": {},
+            "description": "create_branch: branch[, from]; commit_file: path, content[, message, branch]; create_pr: head[, title, base, body]"
+          }
+        }
+      },
+      "NlCommandRequest": {
+        "type": "object",
+        "required": ["command"],
+        "properties": {
+          "command": { "type": "string" }
+        }
+      },
+      "NlCommandResult": {
+        "type": "object",
+        "required": ["success", "message"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "action": { "type": "string" },
+          "result": true
+        }
+      }
+    }
+  }
+}
