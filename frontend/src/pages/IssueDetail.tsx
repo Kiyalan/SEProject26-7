@@ -4,8 +4,12 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
-import { analyzeIssue, fetchRepositoryIssue } from '../lib/api'
-import type { GithubIssue, IssueAnalysis } from '../lib/BackendTypes'
+import {
+  analyzeIssue,
+  fetchRepositoryIssue,
+  type GithubIssue,
+  type IssueAnalysis,
+} from '../api/generated'
 
 const issueTypeLabels = {
   usage_question: { label: '使用问题', className: 'gh-label gh-label-blue' },
@@ -48,13 +52,16 @@ export default function IssueDetail() {
           ? Promise.resolve(cachedRepo.fullName)
           : syncRepo(repoId!).then((r) => r.fullName)
 
-        const [name, issueData] = await Promise.all([
+        const [name, issueRes] = await Promise.all([
           repoNamePromise,
-          fetchRepositoryIssue(repoId!, num),
+          fetchRepositoryIssue({ path: { repoId: repoId!, issueNumber: num } }),
         ])
         setRepoName(name)
-        setIssue(issueData)
-        setAnalysis(await analyzeIssue(repoId!, issueData))
+        setIssue(issueRes.data)
+        const { data: analysisData } = await analyzeIssue({
+          body: { repoId: repoId!, issue: issueRes.data },
+        })
+        setAnalysis(analysisData)
       } catch (err) {
         setError(err instanceof Error ? err.message : '加载失败')
       } finally {

@@ -8,8 +8,9 @@ import { useRepoContext } from '../context/RepoContext'
 import {
   analyzeIssue,
   fetchRepositoryIssues,
-} from '../lib/api'
-import type { GithubIssue, IssueAnalysis } from '../lib/BackendTypes'
+  type GithubIssue,
+  type IssueAnalysis,
+} from '../api/generated'
 
 const issueTypeLabels = {
   usage_question: { label: '使用问题', className: 'gh-label gh-label-blue' },
@@ -37,7 +38,10 @@ export default function IssueList() {
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchRepositoryIssues(currentRepoId, { state: issueState, perPage: 30 })
+      const { data } = await fetchRepositoryIssues({
+        path: { repoId: currentRepoId },
+        query: { state: issueState },
+      })
       setIssues(data.items)
       setMeta({ openIssuesCount: data.openIssuesCount, repoFullName: data.repoFullName })
       setAnalyses({})
@@ -61,7 +65,9 @@ export default function IssueList() {
   const handleAnalyzeOne = async (issue: GithubIssue) => {
     if (!currentRepoId) return
     try {
-      const analysis = await analyzeIssue(currentRepoId, issue)
+      const { data: analysis } = await analyzeIssue({
+        body: { repoId: currentRepoId, issue },
+      })
       setAnalyses((prev) => ({ ...prev, [issue.id]: analysis }))
     } catch (err) {
       setError(err instanceof Error ? err.message : '分析失败')
@@ -73,7 +79,14 @@ export default function IssueList() {
     setAnalyzing(true)
     setError(null)
     try {
-      const results = await Promise.all(issues.map((issue) => analyzeIssue(currentRepoId, issue)))
+      const results = await Promise.all(
+        issues.map(async (issue) => {
+          const { data } = await analyzeIssue({
+            body: { repoId: currentRepoId, issue },
+          })
+          return data
+        }),
+      )
       const next: Record<string, IssueAnalysis> = {}
       results.forEach((item) => {
         next[item.issueId] = item

@@ -1,4 +1,4 @@
-import { getUsername, isAuthenticated } from '../lib/auth'
+import { getUsername, isAuthenticated } from '../lib/AuthAxios'
 import SettingSection, { SettingStatusRow } from './SettingSection'
 
 export default function SettingGithubAuth() {

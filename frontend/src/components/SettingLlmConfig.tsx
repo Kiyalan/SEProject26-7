@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Input, message } from 'antd'
-import { fetchLlmConfig, setLlmConfig } from '../lib/api'
-import type { LlmConfig } from '../lib/BackendTypes'
+import { fetchLlmConfig, setLlmConfig, type LlmConfig } from '../api/generated'
 import SettingSection, { SettingStatusRow } from './SettingSection'
 
 const emptyConfig: LlmConfig = { baseUrl: '', apiKey: '', model: '' }
@@ -14,7 +13,7 @@ export default function SettingLlmConfig() {
   const load = () => {
     setLoading(true)
     fetchLlmConfig()
-      .then(setConfig)
+      .then(({ data }) => setConfig(data))
       .catch(() => {
         setConfig(emptyConfig)
         message.error('读取 LLM 配置失败')
@@ -29,10 +28,12 @@ export default function SettingLlmConfig() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const saved = await setLlmConfig({
-        baseUrl: config.baseUrl.trim(),
-        apiKey: config.apiKey.trim(),
-        model: config.model.trim(),
+      const { data: saved } = await setLlmConfig({
+        body: {
+          baseUrl: config.baseUrl.trim(),
+          apiKey: config.apiKey.trim(),
+          model: config.model.trim(),
+        },
       })
       setConfig(saved)
       message.success('LLM 配置已保存')

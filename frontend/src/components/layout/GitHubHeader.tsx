@@ -2,9 +2,8 @@ import { projectDisplayName } from '../../config/BaseConfig'
 import { MarkGithubIcon, SearchIcon } from '@primer/octicons-react'
 import { Avatar, Input, Select } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { fetchUserProfile, fetchLlmConfig } from '../../lib/api'
-import type { UserProfile } from '../../lib/BackendTypes'
-import { clearAuth, getUsername } from '../../lib/auth'
+import { fetchUserProfile, fetchLlmConfig, type UserProfile } from '../../api/generated'
+import { clearAuth, getUsername } from '../../lib/AuthAxios'
 import { useRepoContext } from '../../context/RepoContext'
 import { useEffect, useState } from 'react'
 
@@ -17,10 +16,10 @@ export default function GitHubHeader() {
 
   useEffect(() => {
     fetchUserProfile()
-      .then(setUser)
+      .then(({ data }) => setUser(data))
       .catch(() => setUser(null))
     fetchLlmConfig()
-      .then((c) => setLlmOn(Boolean(c.apiKey?.trim())))
+      .then(({ data: c }) => setLlmOn(Boolean(c.apiKey?.trim())))
       .catch(() => setLlmOn(false))
   }, [])
 

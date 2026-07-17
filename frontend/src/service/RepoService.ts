@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { REPO_LIST_QUERY_KEY, repoSingleQueryKey } from '../config/QueryConfig'
-import { fetchRepoList as fetchRepoListApi, fetchRepoSingle as fetchRepoSingleApi } from '../lib/api'
+import { fetchRepoList, fetchRepoSingle } from '../api/generated'
 import type { Repository, RepositoryList } from '../lib/FrontendTypes'
 
 export interface RepoListState {
@@ -56,7 +56,10 @@ export function createRepoListDeps() {
     isFetching,
   } = useQuery({
     queryKey: REPO_LIST_QUERY_KEY,
-    queryFn: () => fetchRepoListApi(),
+    queryFn: async () => {
+      const { data } = await fetchRepoList()
+      return data.items
+    },
   })
 
   const deps = useMemo<RepoListDeps>(
@@ -80,7 +83,10 @@ export function createRepoListDeps() {
         fetchRepoList: async (): Promise<RepositoryList> => {
           const list = await queryClient.fetchQuery({
             queryKey: REPO_LIST_QUERY_KEY,
-            queryFn: () => fetchRepoListApi(),
+            queryFn: async () => {
+              const { data } = await fetchRepoList()
+              return data.items
+            },
           })
           setCurrentRepoId((prev) => resolveDefaultCurrentRepoId(prev, list))
           return list
@@ -94,7 +100,10 @@ export function createRepoListDeps() {
         fetchRepoSingle: async (repoId: string): Promise<Repository> => {
           const repo = await queryClient.fetchQuery({
             queryKey: repoSingleQueryKey(repoId),
-            queryFn: () => fetchRepoSingleApi(repoId),
+            queryFn: async () => {
+              const { data } = await fetchRepoSingle({ path: { repoId } })
+              return data
+            },
           })
           queryClient.setQueryData<RepositoryList>(REPO_LIST_QUERY_KEY, (prev = []) =>
             mergeRepoIntoList(prev, repo),

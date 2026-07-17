@@ -1,7 +1,7 @@
 import { Spin, Typography } from 'antd'
 import { useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { setAuth } from '../lib/auth'
+import { setAuth } from '../lib/AuthAxios'
 
 export default function OAuthSuccess() {
   const [params] = useSearchParams()

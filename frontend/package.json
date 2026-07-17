@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "openapi-ts": "openapi-ts",
+    "prebuild": "npm run openapi-ts"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
@@ -15,12 +17,14 @@
     "@primer/octicons-react": "^19.29.1",
     "@tanstack/react-query": "^5.101.2",
     "antd": "^6.5.0",
+    "axios": "^1.18.1",
     "dayjs": "^1.11.21",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

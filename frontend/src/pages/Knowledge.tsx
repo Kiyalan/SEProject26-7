@@ -11,12 +11,11 @@ import {
   fetchKnowledge,
   fetchKnowledgePolicy,
   updateKnowledgeSettings,
-} from '../lib/api'
-import type {
-  CommitCompareResult,
-  IndexedCommit,
-  KnowledgeOverview,
-} from '../lib/BackendTypes'
+  type CommitCompareResult,
+  type IndexedCommit,
+  type KnowledgeOverview,
+  type KnowledgePolicy,
+} from '../api/generated'
 import type { KnowledgeNode } from '../lib/FrontendTypes'
 
 function toTreeData(nodes: KnowledgeNode[]): DataNode[] {
@@ -48,7 +47,7 @@ export default function Knowledge() {
   const [compareHead, setCompareHead] = useState('')
   const [compareResult, setCompareResult] = useState<CommitCompareResult | null>(null)
   const [comparing, setComparing] = useState(false)
-  const [policy, setPolicy] = useState<Awaited<ReturnType<typeof fetchKnowledgePolicy>> | null>(null)
+  const [policy, setPolicy] = useState<KnowledgePolicy | null>(null)
 
   const loadOverview = useCallback(
     async (id: string, commitSha?: string) => {
@@ -56,7 +55,10 @@ export default function Knowledge() {
       setLoading(true)
       setError(null)
       try {
-        const data = await fetchKnowledge(id, commitSha)
+        const { data } = await fetchKnowledge({
+          path: { repoId: id },
+          query: commitSha ? { commit: commitSha } : undefined,
+        })
         setOverview(data)
         setIndexEachCommit(data.settings?.indexEachCommit ?? false)
         setMaxCommits(data.settings?.maxCommits ?? 30)
@@ -79,8 +81,8 @@ export default function Knowledge() {
   useEffect(() => {
     if (currentRepoId) {
       loadOverview(currentRepoId)
-      fetchKnowledgePolicy(currentRepoId)
-        .then(setPolicy)
+      fetchKnowledgePolicy({ path: { repoId: currentRepoId } })
+        .then(({ data }) => setPolicy(data))
         .catch(() => setPolicy(null))
     }
   }, [currentRepoId, loadOverview])
@@ -88,7 +90,10 @@ export default function Knowledge() {
   const handleSelectCommit = async (commit: IndexedCommit) => {
     if (!currentRepoId) return
     setSelectedCommit(commit.commitSha)
-    await updateKnowledgeSettings(currentRepoId, { activeCommitSha: commit.commitSha })
+    await updateKnowledgeSettings({
+      path: { repoId: currentRepoId },
+      body: { activeCommitSha: commit.commitSha },
+    })
     await loadOverview(currentRepoId, commit.commitSha)
   }
 
@@ -97,8 +102,14 @@ export default function Knowledge() {
     setBuilding(true)
     setError(null)
     try {
-      await buildKnowledge(currentRepoId, { indexEachCommit, maxCommits })
-      await updateKnowledgeSettings(currentRepoId, { indexEachCommit, maxCommits })
+      await buildKnowledge({
+        path: { repoId: currentRepoId },
+        body: { indexEachCommit, maxCommits },
+      })
+      await updateKnowledgeSettings({
+        path: { repoId: currentRepoId },
+        body: { indexEachCommit, maxCommits },
+      })
       await loadOverview(currentRepoId)
     } catch (err) {
       setError(err instanceof Error ? err.message : '构建失败')
@@ -112,7 +123,10 @@ export default function Knowledge() {
     setComparing(true)
     setError(null)
     try {
-      const result = await compareKnowledgeCommits(currentRepoId, compareBase, compareHead)
+      const { data: result } = await compareKnowledgeCommits({
+        path: { repoId: currentRepoId },
+        query: { base: compareBase, head: compareHead },
+      })
       setCompareResult(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : '对比失败')
@@ -377,8 +391,8 @@ export default function Knowledge() {
                       {Object.entries(policy.featureMatrix).map(([feature, row]) => (
                         <div key={feature} style={{ marginTop: 10, fontSize: 12 }}>
                           <strong>{feature}</strong>
-                          <div className="gh-muted">需要：{row.needs.join('、')}</div>
-                          <div className="gh-muted">不必：{row.not_needed.join('、')}</div>
+                          <div className="gh-muted">需要：{(row.needs ?? []).join('、')}</div>
+                          <div className="gh-muted">不必：{(row.not_needed ?? []).join('、')}</div>
                         </div>
                       ))}
                     </>

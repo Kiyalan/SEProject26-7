@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { fetchKnowledge } from '../../lib/api'
+import { fetchKnowledge, type KnowledgeOverview } from '../../api/generated'
 import { useRepoContext } from '../../context/RepoContext'
 import QuickActions from '../QuickActions'
 
@@ -17,12 +17,12 @@ const LANG_COLORS: Record<string, string> = {
 export default function ContextPanel() {
   const location = useLocation()
   const { currentRepoId, currentRepo } = useRepoContext()
-  const [knowledge, setKnowledge] = useState<Awaited<ReturnType<typeof fetchKnowledge>> | null>(null)
+  const [knowledge, setKnowledge] = useState<KnowledgeOverview | null>(null)
 
   useEffect(() => {
     if (!currentRepoId) return
-    fetchKnowledge(currentRepoId)
-      .then(setKnowledge)
+    fetchKnowledge({ path: { repoId: currentRepoId } })
+      .then(({ data }) => setKnowledge(data))
       .catch(() => setKnowledge(null))
   }, [currentRepoId, location.pathname])
 
