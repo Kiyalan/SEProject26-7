@@ -2,7 +2,7 @@ import { projectDisplayName } from '../config/BaseConfig'
 import { MarkGithubIcon } from '@primer/octicons-react'
 import { Alert } from 'antd'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import { isAuthenticated, startGithubLogin } from '../lib/auth'
+import { isAuthenticated, startGithubLogin } from '../lib/AuthAxios'
 
 export default function Login() {
   const [params] = useSearchParams()

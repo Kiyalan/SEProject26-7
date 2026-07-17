@@ -4,7 +4,7 @@ import { PaperAirplaneIcon, PersonIcon } from '@primer/octicons-react'
 import { useEffect, useState } from 'react'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
-import { fetchKnowledge, fetchLlmConfig, sendChatMessage } from '../lib/api'
+import { fetchKnowledge, fetchLlmConfig, sendChatMessage } from '../api/generated'
 import type { ChatMessage } from '../lib/FrontendTypes'
 
 const questionTypeMap = {
@@ -23,14 +23,14 @@ export default function Chat() {
 
   useEffect(() => {
     fetchLlmConfig()
-      .then((cfg) => setLlmEnabled(cfg.configured))
+      .then(({ data: cfg }) => setLlmEnabled(Boolean(cfg.apiKey?.trim())))
       .catch(() => setLlmEnabled(false))
   }, [])
 
   useEffect(() => {
     if (!currentRepoId) return
-    fetchKnowledge(currentRepoId)
-      .then((data) => setKnowledgeReady(data.status === 'ready' && data.chunkCount > 0))
+    fetchKnowledge({ path: { repoId: currentRepoId } })
+      .then(({ data }) => setKnowledgeReady(data.status === 'ready' && data.chunkCount > 0))
       .catch(() => setKnowledgeReady(false))
   }, [currentRepoId])
 
@@ -47,7 +47,9 @@ export default function Chat() {
     setLoading(true)
 
     try {
-      const result = await sendChatMessage(currentRepoId, userMsg.content)
+      const { data: result } = await sendChatMessage({
+        body: { repoId: currentRepoId, message: userMsg.content },
+      })
       setMessages((prev) => [
         ...prev,
         {

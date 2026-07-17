@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
-import { getUsername } from '../lib/auth'
+import { getUsername } from '../lib/AuthAxios'
 
 const statusLabel = {
   synced: { text: '已同步', className: 'gh-label gh-label-green' },

@@ -1,5 +1,5 @@
 import { Navigate, Outlet } from 'react-router-dom'
-import { isAuthenticated } from '../lib/auth'
+import { isAuthenticated } from '../lib/AuthAxios'
 
 export default function ProtectedRoute() {
   if (!isAuthenticated()) {

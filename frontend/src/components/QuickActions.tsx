@@ -6,7 +6,7 @@ import {
   buildKnowledge,
   executeGitAction,
   executeNlCommand,
-} from '../lib/api'
+} from '../api/generated'
 
 interface QuickActionsProps {
   compact?: boolean
@@ -49,7 +49,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
 
   const handleSync = () =>
     run('sync', async () => {
-      await buildKnowledge(currentRepoId)
+      await buildKnowledge({ path: { repoId: currentRepoId } })
       await syncRepoList()
     })
 
@@ -58,7 +58,10 @@ export default function QuickActions({ compact }: QuickActionsProps) {
     setLoading('nl')
     setNlResult(null)
     try {
-      const result = await executeNlCommand(currentRepoId, nlCommand.trim())
+      const { data: result } = await executeNlCommand({
+        path: { repoId: currentRepoId },
+        body: { command: nlCommand.trim() },
+      })
       setNlResult(result.message)
       if (result.success) message.success('命令已执行')
       else message.info(result.message)
@@ -74,18 +77,33 @@ export default function QuickActions({ compact }: QuickActionsProps) {
     setLoading(modal.type)
     try {
       if (modal.type === 'branch') {
-        await executeGitAction(currentRepoId, 'create_branch', { branch: form.branch })
+        await executeGitAction({
+          path: { repoId: currentRepoId },
+          body: { action: 'create_branch', params: { branch: form.branch } },
+        })
       } else if (modal.type === 'commit') {
-        await executeGitAction(currentRepoId, 'commit_file', {
-          path: form.path,
-          content: form.content,
-          message: form.message || `Update ${form.path}`,
+        await executeGitAction({
+          path: { repoId: currentRepoId },
+          body: {
+            action: 'commit_file',
+            params: {
+              path: form.path,
+              content: form.content,
+              message: form.message || `Update ${form.path}`,
+            },
+          },
         })
       } else {
-        await executeGitAction(currentRepoId, 'create_pr', {
-          title: form.prTitle,
-          body: form.prBody,
-          head: form.branch || `${projectDisplayNameLower}-${Date.now()}`,
+        await executeGitAction({
+          path: { repoId: currentRepoId },
+          body: {
+            action: 'create_pr',
+            params: {
+              title: form.prTitle,
+              body: form.prBody,
+              head: form.branch || `${projectDisplayNameLower}-${Date.now()}`,
+            },
+          },
         })
       }
       message.success('操作成功')

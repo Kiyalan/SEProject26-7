@@ -1,17 +1,6 @@
-export interface Repository {
-  id: string
-  name: string
-  fullName: string
-  description: string
-  stars: number
-  openIssues: number
-  language: string
-  lastSync: string
-  syncStatus: 'synced' | 'syncing' | 'error'
-  htmlUrl?: string
-  private?: boolean
-  defaultBranch?: string
-}
+import type { Repository } from '../api/generated'
+
+export type { Repository, KnowledgeNode } from '../api/generated'
 
 export type RepositoryList = Repository[]
 
@@ -21,11 +10,4 @@ export interface ChatMessage {
   content: string
   citations?: { file: string; line?: number }[]
   questionType?: 'what' | 'where' | 'how'
-}
-
-export interface KnowledgeNode {
-  key: string
-  title: string
-  type: 'folder' | 'file' | 'module'
-  children?: KnowledgeNode[]
 }

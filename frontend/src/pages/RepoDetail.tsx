@@ -10,8 +10,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
-import { fetchRepositoryIssues } from '../lib/api'
-import type { GithubIssue } from '../lib/BackendTypes'
+import { fetchRepositoryIssues, type GithubIssue } from '../api/generated'
 import type { Repository } from '../lib/FrontendTypes'
 
 export default function RepoDetail() {
@@ -30,12 +29,12 @@ export default function RepoDetail() {
       setLoading(true)
       setError(null)
       try {
-        const [repoData, issueData] = await Promise.all([
+        const [repoData, issueRes] = await Promise.all([
           syncRepo(repoId!),
-          fetchRepositoryIssues(repoId!),
+          fetchRepositoryIssues({ path: { repoId: repoId! } }),
         ])
         setRepo(repoData)
-        setIssues(issueData.items)
+        setIssues(issueRes.data.items)
       } catch (err) {
         setError(err instanceof Error ? err.message : '加载失败')
       } finally {

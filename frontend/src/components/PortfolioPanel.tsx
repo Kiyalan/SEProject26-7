@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Spin } from 'antd'
-import { fetchPortfolioOverview } from '../lib/api'
-import type { PortfolioOverview } from '../lib/BackendTypes'
+import { fetchPortfolioOverview, type PortfolioOverview } from '../api/generated'
 
 export default function PortfolioPanel() {
   const [open, setOpen] = useState(false)
@@ -12,7 +11,7 @@ export default function PortfolioPanel() {
     if (!open || data) return
     setLoading(true)
     fetchPortfolioOverview()
-      .then(setData)
+      .then(({ data }) => setData(data))
       .catch(() => setData(null))
       .finally(() => setLoading(false))
   }, [open, data])

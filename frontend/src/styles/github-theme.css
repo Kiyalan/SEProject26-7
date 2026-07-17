@@ -258,6 +258,60 @@ body {
   gap: 16px;
 }
 
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.setting-section {
+  width: 100%;
+}
+
+.setting-section-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.setting-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gh-border-muted);
+  font-size: 13px;
+}
+
+.setting-section-desc {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--gh-fg-muted);
+}
+
+.setting-field {
+  margin-top: 12px;
+}
+
+.setting-field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gh-fg-muted);
+}
+
+.setting-section-footer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gh-border-muted);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .gh-grid-3 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
