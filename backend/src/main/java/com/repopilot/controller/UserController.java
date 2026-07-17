@@ -18,7 +18,7 @@ public class UserController {
         this.github = github;
     }
 
-    @GetMapping({"/api/user/profile", "/api/me"})
+    @GetMapping("/api/user/profile")
     Map<String, Object> profile(@RequestHeader(value = "Authorization", required = false) String authorization) {
         String token = AuthSupport.requireToken(authorization);
         JsonNode user = github.get("/user", token);

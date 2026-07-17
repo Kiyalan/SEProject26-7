@@ -2,24 +2,25 @@ import { projectDisplayName } from '../../config/BaseConfig'
 import { MarkGithubIcon, SearchIcon } from '@primer/octicons-react'
 import { Avatar, Input, Select } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { fetchUserProfile, fetchLlmConfig, type UserProfile } from '../../api/generated'
-import { clearAuth, getUsername } from '../../lib/AuthAxios'
+import { fetchCurrentUser, fetchLlmConfig } from '../../lib/api'
+import type { GithubUser } from '../../lib/BackendTypes'
+import { clearAuth, getUsername } from '../../lib/auth'
 import { useRepoContext } from '../../context/RepoContext'
 import { useEffect, useState } from 'react'
 
 export default function GitHubHeader() {
   const navigate = useNavigate()
   const { repoList, currentRepoId, setCurrentRepo } = useRepoContext()
-  const [user, setUser] = useState<UserProfile | null>(null)
+  const [user, setUser] = useState<GithubUser | null>(null)
   const [search, setSearch] = useState('')
   const [llmOn, setLlmOn] = useState(false)
 
   useEffect(() => {
-    fetchUserProfile()
-      .then(({ data }) => setUser(data))
+    fetchCurrentUser()
+      .then(setUser)
       .catch(() => setUser(null))
     fetchLlmConfig()
-      .then(({ data: c }) => setLlmOn(Boolean(c.apiKey?.trim())))
+      .then((c) => setLlmOn(!!c.apiKey))
       .catch(() => setLlmOn(false))
   }, [])
 

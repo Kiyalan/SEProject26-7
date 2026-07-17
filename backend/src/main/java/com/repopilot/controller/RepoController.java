@@ -3,13 +3,11 @@ package com.repopilot.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.repopilot.client.GitHubClient;
 import com.repopilot.security.AuthSupport;
-import com.repopilot.service.ProgressService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,11 +16,9 @@ import java.util.Map;
 public class RepoController {
 
     private final GitHubClient github;
-    private final ProgressService progressService;
 
-    public RepoController(GitHubClient github, ProgressService progressService) {
+    public RepoController(GitHubClient github) {
         this.github = github;
-        this.progressService = progressService;
     }
 
     @GetMapping
@@ -54,13 +50,5 @@ public class RepoController {
     ) {
         String token = AuthSupport.requireToken(authorization);
         return github.formatRepo(github.get("/repositories/" + repoId, token));
-    }
-
-    @GetMapping("/{repoId}/progress")
-    Map<String, Object> repoProgress(@PathVariable String repoId) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("knowledge", progressService.snapshot("knowledge:" + repoId));
-        result.put("issues", progressService.snapshot("issues:" + repoId));
-        return result;
     }
 }

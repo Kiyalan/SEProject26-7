@@ -91,16 +91,4 @@ public class IssueController {
         return issueService.analyze(repoId, issue, token);
     }
 
-    @GetMapping("/api/issues/{issueId}/analysis")
-    Map<String, Object> getIssueAnalysis(
-            @PathVariable String issueId,
-            @RequestHeader(value = "Authorization", required = false) String authorization
-    ) {
-        AuthSupport.requireToken(authorization);
-        Map<String, Object> result = issueService.getAnalysis(issueId);
-        if (result == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "该 Issue 尚未分析");
-        }
-        return result;
-    }
 }

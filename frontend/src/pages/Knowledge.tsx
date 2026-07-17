@@ -3,7 +3,6 @@ import { Alert, Checkbox, InputNumber, Spin, Tree } from 'antd'
 import type { DataNode } from 'antd/es/tree'
 import { useCallback, useEffect, useState } from 'react'
 import PageShell from '../components/layout/PageShell'
-import PortfolioPanel from '../components/PortfolioPanel'
 import { useRepoContext } from '../context/RepoContext'
 import {
   buildKnowledge,
@@ -165,8 +164,6 @@ export default function Knowledge() {
       }
     >
       {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
-
-      <PortfolioPanel />
 
       <div className="gh-box" style={{ marginBottom: 16 }}>
         <div className="gh-box-header">索引策略</div>
