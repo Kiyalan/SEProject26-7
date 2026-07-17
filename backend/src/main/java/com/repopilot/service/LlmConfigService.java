@@ -60,6 +60,36 @@ public class LlmConfigService {
         return view;
     }
 
+    public synchronized Map<String, Object> contractView() {
+        LlmSettings current = settings;
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("baseUrl", blankToDefault(current.baseUrl(), defaults.llm().baseUrl()));
+        view.put("apiKey", current.apiKey() == null ? "" : current.apiKey());
+        view.put("model", blankToDefault(current.model(), defaults.llm().model()));
+        return view;
+    }
+
+    public synchronized Map<String, Object> updateContract(Map<String, Object> body) {
+        LlmSettings current = settings;
+        String apiKey = current.apiKey();
+        String incomingKey = str(body.get("apiKey"));
+        if (!incomingKey.isBlank()) {
+            apiKey = incomingKey;
+        }
+
+        LlmSettings updated = new LlmSettings(
+                apiKey,
+                firstNonBlank(str(body.get("baseUrl")), current.baseUrl(), defaults.llm().baseUrl()),
+                firstNonBlank(str(body.get("model")), current.model(), defaults.llm().model()),
+                blankToDefault(current.httpReferer(), defaults.llm().httpReferer()),
+                blankToDefault(current.appTitle(), defaults.llm().appTitle())
+        );
+        persist(updated);
+        settings = updated;
+        loadedFromFile = true;
+        return contractView();
+    }
+
     public synchronized Map<String, Object> update(Map<String, Object> body) {
         LlmSettings current = settings;
         String apiKey = current.apiKey();

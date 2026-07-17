@@ -12,7 +12,7 @@ public class CommitFileId implements Serializable {
     @Column(name = "commit_sha", length = 64)
     private String commitSha;
 
-    @Column(name = "path", length = 512)
+    @Column(name = "path", length = 1024)
     private String path;
 
     public CommitFileId() {

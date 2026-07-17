@@ -42,8 +42,16 @@ public class LlmService {
         return configService.publicView();
     }
 
+    public Map<String, Object> contractConfig() {
+        return configService.contractView();
+    }
+
     public Map<String, Object> updateConfig(Map<String, Object> body) {
         return configService.update(body);
+    }
+
+    public Map<String, Object> updateContractConfig(Map<String, Object> body) {
+        return configService.updateContract(body);
     }
 
     public Map<String, Object> testConnection() {

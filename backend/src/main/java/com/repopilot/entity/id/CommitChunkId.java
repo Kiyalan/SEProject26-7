@@ -12,7 +12,7 @@ public class CommitChunkId implements Serializable {
     @Column(name = "commit_sha", length = 64)
     private String commitSha;
 
-    @Column(name = "file_path", length = 512)
+    @Column(name = "file_path", length = 1024)
     private String filePath;
 
     @Column(name = "chunk_index")
