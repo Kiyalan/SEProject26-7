@@ -1,0 +1,33 @@
+server:
+  port: 8000
+
+spring:
+  application:
+    name: repopilot-backend
+  datasource:
+    url: jdbc:h2:file:./data/knowledge;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    show-sql: false
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+repopilot:
+  github:
+    client-id: ${GITHUB_CLIENT_ID:}
+    client-secret: ${GITHUB_CLIENT_SECRET:}
+    callback-url: ${GITHUB_CALLBACK_URL:http://localhost:5173/auth/callback}
+    frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  llm:
+    api-key: ${LLM_API_KEY:}
+    base-url: ${LLM_BASE_URL:https://openrouter.ai/api/v1}
+    model: ${LLM_MODEL:tencent/hy3:free}
+    http-referer: ${LLM_HTTP_REFERER:http://localhost:5173}
+    app-title: ${LLM_APP_TITLE:RepoPilot}
