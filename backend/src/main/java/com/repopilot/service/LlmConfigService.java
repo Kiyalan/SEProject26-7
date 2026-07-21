@@ -1,13 +1,14 @@
 package com.repopilot.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.repopilot.config.AppProperties;
-import org.springframework.stereotype.Service;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
+
+import org.springframework.stereotype.Service;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.repopilot.config.AppProperties;
 
 @Service
 public class LlmConfigService {
@@ -50,6 +51,7 @@ public class LlmConfigService {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("configured", hasApiKey(current));
         view.put("model", blankToDefault(current.model(), defaults.llm().model()));
+        view.put("embeddingModel", blankToDefault(current.embeddingModel(), defaults.llm().embeddingModel()));
         view.put("baseUrl", blankToDefault(current.baseUrl(), defaults.llm().baseUrl()));
         view.put("provider", providerLabel(view.get("baseUrl").toString()));
         view.put("hasApiKey", hasApiKey(current));
@@ -66,6 +68,7 @@ public class LlmConfigService {
         view.put("baseUrl", blankToDefault(current.baseUrl(), defaults.llm().baseUrl()));
         view.put("apiKey", current.apiKey() == null ? "" : current.apiKey());
         view.put("model", blankToDefault(current.model(), defaults.llm().model()));
+        view.put("embeddingModel", blankToDefault(current.embeddingModel(), defaults.llm().embeddingModel()));
         return view;
     }
 
@@ -81,6 +84,7 @@ public class LlmConfigService {
                 apiKey,
                 firstNonBlank(str(body.get("baseUrl")), current.baseUrl(), defaults.llm().baseUrl()),
                 firstNonBlank(str(body.get("model")), current.model(), defaults.llm().model()),
+                firstNonBlank(str(body.get("embeddingModel")), current.embeddingModel(), defaults.llm().embeddingModel()),
                 blankToDefault(current.httpReferer(), defaults.llm().httpReferer()),
                 blankToDefault(current.appTitle(), defaults.llm().appTitle())
         );
@@ -106,6 +110,7 @@ public class LlmConfigService {
                 apiKey,
                 firstNonBlank(str(body.get("baseUrl")), current.baseUrl(), defaults.llm().baseUrl()),
                 firstNonBlank(str(body.get("model")), current.model(), defaults.llm().model()),
+                firstNonBlank(str(body.get("embeddingModel")), current.embeddingModel(), defaults.llm().embeddingModel()),
                 firstNonBlank(str(body.get("httpReferer")), current.httpReferer(), defaults.llm().httpReferer()),
                 firstNonBlank(str(body.get("appTitle")), current.appTitle(), defaults.llm().appTitle())
         );
@@ -133,6 +138,7 @@ public class LlmConfigService {
                     updated.apiKey(),
                     updated.baseUrl(),
                     updated.model(),
+                    updated.embeddingModel(),
                     updated.httpReferer(),
                     updated.appTitle()
             );
@@ -147,6 +153,7 @@ public class LlmConfigService {
                 properties.llm().apiKey(),
                 properties.llm().baseUrl(),
                 properties.llm().model(),
+                properties.llm().embeddingModel(),
                 properties.llm().httpReferer(),
                 properties.llm().appTitle()
         );
@@ -157,6 +164,7 @@ public class LlmConfigService {
                 firstNonBlank(stored.apiKey(), defaults.apiKey()),
                 firstNonBlank(stored.baseUrl(), defaults.baseUrl()),
                 firstNonBlank(stored.model(), defaults.model()),
+                firstNonBlank(stored.embeddingModel(), defaults.embeddingModel()),
                 firstNonBlank(stored.httpReferer(), defaults.httpReferer()),
                 firstNonBlank(stored.appTitle(), defaults.appTitle())
         );
@@ -193,7 +201,7 @@ public class LlmConfigService {
         return value == null ? "" : String.valueOf(value).trim();
     }
 
-    public record LlmSettings(String apiKey, String baseUrl, String model, String httpReferer, String appTitle) {}
+    public record LlmSettings(String apiKey, String baseUrl, String model, String embeddingModel, String httpReferer, String appTitle) {}
 
-    private record StoredConfig(String apiKey, String baseUrl, String model, String httpReferer, String appTitle) {}
+    private record StoredConfig(String apiKey, String baseUrl, String model, String embeddingModel, String httpReferer, String appTitle) {}
 }

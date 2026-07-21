@@ -63,6 +63,10 @@ public class RepoCommit {
     @Column(name = "chunk_count")
     private Integer chunkCount = 0;
 
+    @Lob
+    @Column(name = "module_summary")
+    private String moduleSummary;
+
     public Long getId() {
         return id;
     }
@@ -181,5 +185,13 @@ public class RepoCommit {
 
     public void setChunkCount(Integer chunkCount) {
         this.chunkCount = chunkCount;
+    }
+
+    public String getModuleSummary() {
+        return moduleSummary;
+    }
+
+    public void setModuleSummary(String moduleSummary) {
+        this.moduleSummary = moduleSummary;
     }
 }

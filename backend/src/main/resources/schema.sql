@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS commit_files (
     file_type VARCHAR(16) NOT NULL,
     size INT DEFAULT 0,
     language VARCHAR(64),
+    summary CLOB,
     PRIMARY KEY (commit_sha, path)
 );
 
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS commit_chunks (
     chunk_index INT NOT NULL,
     content CLOB NOT NULL,
     start_line INT DEFAULT 1,
+    embedding BLOB,
     PRIMARY KEY (commit_sha, file_path, chunk_index)
 );
 

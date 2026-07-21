@@ -1,14 +1,18 @@
 package com.repopilot.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.repopilot.util.KnowledgeUtils;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.repopilot.util.KnowledgeUtils;
 
 @Service
 public class LlmService {
@@ -28,6 +32,10 @@ public class LlmService {
 
     public String model() {
         return configService.current().model();
+    }
+
+    public String embeddingModel() {
+        return configService.current().embeddingModel();
     }
 
     public String baseUrl() {
@@ -152,5 +160,93 @@ public class LlmService {
                 "citations", citations,
                 "llmEnabled", llmEnabled
         );
+    }
+
+    public String summarizeCode(String filePath, String content, String language) {
+        if (!configured()) return "";
+        int maxLen = 2000;
+        String truncated = content.length() > maxLen ? content.substring(0, maxLen) + "\n... (truncated)" : content;
+        String prompt = "请用一句简洁的中文（不超过60字）描述以下代码文件的功能和用途：" +
+                "\n文件路径：" + filePath + "\n语言：" + language + "\n\n```\n" + truncated + "\n```";
+        try {
+            return chatCompletion("你是代码分析助手，只输出一句简洁的功能描述，不要解释。", prompt).trim();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    public String summarizeModule(String moduleName, List<String> fileSummaries) {
+        if (!configured() || fileSummaries.isEmpty()) return "";
+        String joined = String.join("\n", fileSummaries.stream().limit(20).toList());
+        String prompt = "以下是模块「" + moduleName + "」下各文件的摘要，请用一段中文（不超过200字）概括该模块的整体功能和架构角色：\n\n" + joined;
+        try {
+            return chatCompletion("你是代码分析助手，请简洁概括模块功能。", prompt).trim();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    public List<float[]> embed(List<String> texts) {
+        if (!configured() || texts.isEmpty()) return List.of();
+        LlmConfigService.LlmSettings llm = configService.current();
+        String apiKey = llm.apiKey();
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", llm.embeddingModel());
+        body.put("input", texts);
+
+        try {
+            JsonNode response = client.post()
+                    .uri(llm.baseUrl().replaceAll("/$", "") + "/embeddings")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("HTTP-Referer", llm.httpReferer())
+                    .header("X-Title", llm.appTitle())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            List<float[]> result = new ArrayList<>();
+            for (JsonNode item : response.path("data")) {
+                JsonNode emb = item.path("embedding");
+                float[] vec = new float[emb.size()];
+                for (int i = 0; i < emb.size(); i++) {
+                    vec[i] = (float) emb.get(i).asDouble();
+                }
+                result.add(vec);
+            }
+            return result;
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    public static byte[] floatsToBytes(float[] floats) {
+        ByteBuffer buffer = ByteBuffer.allocate(floats.length * 4);
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+        for (float f : floats) {
+            buffer.putFloat(f);
+        }
+        return buffer.array();
+    }
+
+    public static float[] bytesToFloats(byte[] bytes) {
+        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+        float[] floats = new float[bytes.length / 4];
+        for (int i = 0; i < floats.length; i++) {
+            floats[i] = buffer.getFloat();
+        }
+        return floats;
+    }
+
+    public static double cosineSimilarity(float[] a, float[] b) {
+        double dot = 0, normA = 0, normB = 0;
+        for (int i = 0; i < a.length; i++) {
+            dot += (double) a[i] * b[i];
+            normA += (double) a[i] * a[i];
+            normB += (double) b[i] * b[i];
+        }
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
     }
 }

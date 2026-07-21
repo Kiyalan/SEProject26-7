@@ -197,6 +197,7 @@ export type KnowledgeOverview = {
     }>;
     dependencies: Array<string>;
     summary?: string;
+    moduleSummary?: string;
     languages?: {
         [key: string]: number;
     };
@@ -210,6 +211,7 @@ export type KnowledgeOverview = {
         path: string;
         size: number;
         language: string;
+        summary?: string;
     }>;
     commits?: Array<IndexedCommit>;
     settings?: KnowledgeSettings;

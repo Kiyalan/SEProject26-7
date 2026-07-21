@@ -1,9 +1,11 @@
 package com.repopilot.entity;
 
 import com.repopilot.entity.id.CommitFileId;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 @Entity
@@ -27,6 +29,10 @@ public class CommitFile {
 
     @Column(name = "language", length = 64)
     private String language;
+
+    @Lob
+    @Column(name = "summary")
+    private String summary;
 
     public CommitFileId getId() {
         return id;
@@ -74,5 +80,13 @@ public class CommitFile {
 
     public void setLanguage(String language) {
         this.language = language;
+    }
+
+    public String getSummary() {
+        return summary;
+    }
+
+    public void setSummary(String summary) {
+        this.summary = summary;
     }
 }

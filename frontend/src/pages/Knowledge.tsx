@@ -338,6 +338,48 @@ export default function Knowledge() {
             </div>
           </div>
 
+          {overview?.moduleSummary && (
+            <div className="gh-box" style={{ marginBottom: 16 }}>
+              <div className="gh-box-header">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <PackageIcon size={16} />
+                  模块概述 (AI)
+                </span>
+              </div>
+              <div className="gh-box-body">
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.8, fontFamily: 'inherit' }}>
+                  {overview.moduleSummary}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {overview?.indexedFiles?.some((f) => f.summary) && (
+            <div className="gh-box" style={{ marginBottom: 16 }}>
+              <div className="gh-box-header">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FileIcon size={16} />
+                  文件摘要 (AI)
+                </span>
+                <span className="gh-muted" style={{ fontWeight: 400 }}>
+                  {overview.indexedFiles.filter((f) => f.summary).length} 个文件
+                </span>
+              </div>
+              <div className="gh-box-body" style={{ maxHeight: 400, overflowY: 'auto' }}>
+                {overview.indexedFiles
+                  .filter((f) => f.summary)
+                  .map((f) => (
+                    <div key={f.path} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--accent)', marginBottom: 4 }}>
+                        {f.path}
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--muted)' }}>{f.summary}</div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
           <div className="gh-grid-2">
             <div className="gh-box">
               <div className="gh-box-header">

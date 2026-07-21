@@ -29,5 +29,6 @@ repopilot:
     api-key: ${LLM_API_KEY:}
     base-url: ${LLM_BASE_URL:https://openrouter.ai/api/v1}
     model: ${LLM_MODEL:tencent/hy3:free}
+    embedding-model: ${LLM_EMBEDDING_MODEL:openai/text-embedding-3-small}
     http-referer: ${LLM_HTTP_REFERER:http://localhost:5173}
     app-title: ${LLM_APP_TITLE:RepoPilot}

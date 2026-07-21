@@ -1,22 +1,37 @@
 package com.repopilot.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.repopilot.client.GitHubClient;
-import com.repopilot.entity.*;
-import com.repopilot.repository.support.KnowledgeStore;
-import com.repopilot.util.JsonUtils;
-import com.repopilot.util.KnowledgePolicy;
-import com.repopilot.util.KnowledgeUtils;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.repopilot.client.GitHubClient;
+import com.repopilot.entity.CommitChunk;
+import com.repopilot.entity.CommitFile;
+import com.repopilot.entity.RepoCommit;
+import com.repopilot.entity.RepoIndex;
+import com.repopilot.repository.support.KnowledgeStore;
+import com.repopilot.util.JsonUtils;
+import com.repopilot.util.KnowledgePolicy;
+import com.repopilot.util.KnowledgeUtils;
 
 @Service
 public class KnowledgeService {
@@ -26,11 +41,13 @@ public class KnowledgeService {
     private final KnowledgeStore store;
     private final GitHubClient github;
     private final ProgressService progress;
+    private final LlmService llm;
 
-    public KnowledgeService(KnowledgeStore store, GitHubClient github, ProgressService progress) {
+    public KnowledgeService(KnowledgeStore store, GitHubClient github, ProgressService progress, LlmService llm) {
         this.store = store;
         this.github = github;
         this.progress = progress;
+        this.llm = llm;
     }
     @Transactional
     public Map<String, Object> buildKnowledge(String repoId, String token, boolean indexEachCommit, int maxCommits, List<String> commitShas) {
@@ -145,6 +162,7 @@ public class KnowledgeService {
 
         List<KnowledgeUtils.FileRow> files = new ArrayList<>();
         Map<String, String> fileMap = new HashMap<>();
+        Map<String, String> fileSummaryByPath = new LinkedHashMap<>();
         for (int i = 0; i < selected.size(); i++) {
             String path = selected.get(i);
             progress.step(progressKey, "commit " + commitIndex + "/" + commitTotal + " 文件 " + (i + 1) + "/" + selected.size());
@@ -154,6 +172,15 @@ public class KnowledgeService {
             }
             files.add(new KnowledgeUtils.FileRow(path, "file", content.length(), KnowledgeUtils.detectLanguage(path), content));
             fileMap.put(path, content);
+
+            // LLM 生成文件摘要（跳过过小的文件）
+            if (content.length() > 200 && llm.configured()) {
+                String lang = KnowledgeUtils.detectLanguage(path);
+                String summary = llm.summarizeCode(path, content, lang);
+                if (summary != null && !summary.isBlank()) {
+                    fileSummaryByPath.put(path, summary);
+                }
+            }
         }
 
         List<Map<String, Object>> modules = KnowledgeUtils.extractModules(files);
@@ -164,19 +191,65 @@ public class KnowledgeService {
 
         List<CommitFile> commitFiles = new ArrayList<>();
         List<CommitChunk> commitChunks = new ArrayList<>();
+        List<String> chunkTexts = new ArrayList<>();
         int chunkCount = 0;
         for (KnowledgeUtils.FileRow file : files) {
             String hash = storeContent(file.content());
-            commitFiles.add(KnowledgeStore.newFile(repoId, commitSha, file.path(), hash, file.language(), file.size()));
+            String fileSummary = fileSummaryByPath.getOrDefault(file.path(), "");
+            commitFiles.add(KnowledgeStore.newFile(repoId, commitSha, file.path(), hash, file.language(), file.size(), fileSummary));
             for (Map<String, Object> chunk : KnowledgeUtils.chunkText(file.content(), file.path())) {
+                String chunkContent = str(chunk.get("content"));
                 commitChunks.add(KnowledgeStore.newChunk(
                         repoId, commitSha, str(chunk.get("file_path")),
-                        (Integer) chunk.get("chunk_index"), str(chunk.get("content")), (Integer) chunk.get("start_line")
+                        (Integer) chunk.get("chunk_index"), chunkContent, (Integer) chunk.get("start_line"), null
                 ));
+                chunkTexts.add(chunkContent);
                 chunkCount++;
             }
         }
+
+        // 批量生成 embedding
+        if (llm.configured() && !chunkTexts.isEmpty()) {
+            List<float[]> embeddings = batchEmbed(chunkTexts, progressKey);
+            for (int i = 0; i < commitChunks.size() && i < embeddings.size(); i++) {
+                if (embeddings.get(i) != null) {
+                    commitChunks.get(i).setEmbedding(LlmService.floatsToBytes(embeddings.get(i)));
+                }
+            }
+        }
+
         store.replaceCommitArtifacts(repoId, commitSha, commitFiles, commitChunks);
+
+        // 按模块聚合文件摘要，生成模块级概述
+        StringBuilder moduleSummaryBuilder = new StringBuilder();
+        if (llm.configured() && !fileSummaryByPath.isEmpty()) {
+            Map<String, List<String>> moduleFileSummaries = new LinkedHashMap<>();
+            for (Map<String, Object> module : modules) {
+                String moduleName = str(module.get("name"));
+                @SuppressWarnings("unchecked")
+                List<String> moduleFiles = (List<String>) module.getOrDefault("files", List.of());
+                List<String> summaries = new ArrayList<>();
+                for (String f : moduleFiles) {
+                    String s = fileSummaryByPath.get(f);
+                    if (s != null) {
+                        summaries.add(f + ": " + s);
+                    }
+                }
+                if (!summaries.isEmpty()) {
+                    moduleFileSummaries.put(moduleName, summaries);
+                }
+            }
+            if (!moduleFileSummaries.isEmpty()) {
+                List<String> moduleSummaries = new ArrayList<>();
+                for (Map.Entry<String, List<String>> entry : moduleFileSummaries.entrySet()) {
+                    String ms = llm.summarizeModule(entry.getKey(), entry.getValue());
+                    if (ms != null && !ms.isBlank()) {
+                        moduleSummaries.add("【" + entry.getKey() + "】" + ms);
+                    }
+                }
+                moduleSummaryBuilder.append(String.join("\n\n", moduleSummaries));
+            }
+        }
 
         RepoCommit commitEntity = new RepoCommit();
         commitEntity.setRepoId(repoId);
@@ -188,6 +261,7 @@ public class KnowledgeService {
         commitEntity.setIndexedAt(indexedAt);
         commitEntity.setStatus("ready");
         commitEntity.setSummary(summary);
+        commitEntity.setModuleSummary(moduleSummaryBuilder.isEmpty() ? "" : moduleSummaryBuilder.toString());
         commitEntity.setLanguages(JsonUtils.toJson(languages));
         commitEntity.setReadmePath(readmePath);
         commitEntity.setReadmePreview(readmePreview);
@@ -282,6 +356,11 @@ public class KnowledgeService {
                     item.put("path", f.path());
                     item.put("size", f.size());
                     item.put("language", f.language() == null || f.language().isBlank() ? "—" : f.language());
+                    // 从 CommitFile 实体读取摘要
+                    CommitFile cf = fileEntities.stream()
+                            .filter(e -> e.getId().getPath().equals(f.path()))
+                            .findFirst().orElse(null);
+                    item.put("summary", cf != null && cf.getSummary() != null ? cf.getSummary() : "");
                     return item;
                 }).toList();
 
@@ -293,6 +372,7 @@ public class KnowledgeService {
         result.put("fileCount", commitRow.getFileCount());
         result.put("chunkCount", commitRow.getChunkCount());
         result.put("summary", str(commitRow.getSummary()));
+        result.put("moduleSummary", str(commitRow.getModuleSummary()));
         result.put("languages", JsonUtils.parseIntMap(commitRow.getLanguages()));
         result.put("readmePath", str(commitRow.getReadmePath()));
         result.put("readmePreview", str(commitRow.getReadmePreview()));
@@ -410,7 +490,16 @@ public class KnowledgeService {
         if (resolved == null) {
             return List.of();
         }
-        List<Map<String, Object>> rows = store.listChunks(repoId, resolved).stream().map(chunk -> {
+        List<CommitChunk> chunks = store.listChunks(repoId, resolved);
+        if (chunks.isEmpty()) {
+            return List.of();
+        }
+        // 优先使用向量检索
+        if (llm.configured() && chunks.stream().anyMatch(c -> c.getEmbedding() != null)) {
+            return vectorSearch(chunks, question, limit);
+        }
+        // 回退到关键词匹配
+        List<Map<String, Object>> rows = chunks.stream().map(chunk -> {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("file", chunk.getId().getFilePath());
             row.put("line", chunk.getStartLine());
@@ -418,6 +507,57 @@ public class KnowledgeService {
             return row;
         }).toList();
         return scoreChunks(rows, question, limit);
+    }
+
+    private List<Map<String, Object>> vectorSearch(List<CommitChunk> chunks, String question, int limit) {
+        // 获取问题的 embedding
+        List<float[]> questionEmb = llm.embed(List.of(question));
+        if (questionEmb.isEmpty()) {
+            return List.of();
+        }
+        float[] queryVec = questionEmb.getFirst();
+
+        // 计算余弦相似度
+        List<Map.Entry<Double, CommitChunk>> scored = new ArrayList<>();
+        for (CommitChunk chunk : chunks) {
+            if (chunk.getEmbedding() == null) continue;
+            float[] chunkVec = LlmService.bytesToFloats(chunk.getEmbedding());
+            double score = LlmService.cosineSimilarity(queryVec, chunkVec);
+            scored.add(Map.entry(score, chunk));
+        }
+
+        return scored.stream()
+                .sorted(Map.Entry.<Double, CommitChunk>comparingByKey().reversed())
+                .limit(limit)
+                .map(e -> {
+                    CommitChunk c = e.getValue();
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("file", c.getId().getFilePath());
+                    row.put("line", c.getStartLine());
+                    row.put("content", c.getContent().substring(0, Math.min(500, c.getContent().length())));
+                    return row;
+                })
+                .toList();
+    }
+
+    private List<float[]> batchEmbed(List<String> texts, String progressKey) {
+        List<float[]> all = new ArrayList<>();
+        int batchSize = 50;
+        for (int i = 0; i < texts.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, texts.size());
+            progress.step(progressKey, "向量化 " + (i + 1) + "-" + end + "/" + texts.size());
+            List<String> batch = texts.subList(i, end);
+            List<float[]> batchResult = llm.embed(batch);
+            if (batchResult.size() == batch.size()) {
+                all.addAll(batchResult);
+            } else {
+                // 失败时填充 null
+                for (int j = 0; j < batch.size(); j++) {
+                    all.add(null);
+                }
+            }
+        }
+        return all;
     }
 
     public Map<String, Object> storageStats(String repoId) {

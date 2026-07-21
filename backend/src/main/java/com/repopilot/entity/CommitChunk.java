@@ -1,6 +1,7 @@
 package com.repopilot.entity;
 
 import com.repopilot.entity.id.CommitChunkId;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
@@ -23,6 +24,10 @@ public class CommitChunk {
 
     @Column(name = "start_line")
     private Integer startLine = 1;
+
+    @Lob
+    @Column(name = "embedding")
+    private byte[] embedding;
 
     public CommitChunkId getId() {
         return id;
@@ -54,5 +59,13 @@ public class CommitChunk {
 
     public void setStartLine(Integer startLine) {
         this.startLine = startLine;
+    }
+
+    public byte[] getEmbedding() {
+        return embedding;
+    }
+
+    public void setEmbedding(byte[] embedding) {
+        this.embedding = embedding;
     }
 }

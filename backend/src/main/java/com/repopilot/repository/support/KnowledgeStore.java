@@ -1,14 +1,28 @@
 package com.repopilot.repository.support;
 
-import com.repopilot.entity.*;
-import com.repopilot.entity.id.CommitChunkId;
-import com.repopilot.entity.id.CommitFileId;
-import com.repopilot.repository.*;
-import com.repopilot.util.JsonUtils;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import com.repopilot.entity.CommitChunk;
+import com.repopilot.entity.CommitFile;
+import com.repopilot.entity.FileContent;
+import com.repopilot.entity.RepoCommit;
+import com.repopilot.entity.RepoIndex;
+import com.repopilot.entity.RepoIndexSettings;
+import com.repopilot.entity.id.CommitChunkId;
+import com.repopilot.entity.id.CommitFileId;
+import com.repopilot.repository.CommitChunkRepository;
+import com.repopilot.repository.CommitFileRepository;
+import com.repopilot.repository.FileContentRepository;
+import com.repopilot.repository.RepoCommitRepository;
+import com.repopilot.repository.RepoIndexRepository;
+import com.repopilot.repository.RepoIndexSettingsRepository;
+import com.repopilot.util.JsonUtils;
 
 @Component
 public class KnowledgeStore {
@@ -160,6 +174,7 @@ public class KnowledgeStore {
             current.setIndexedAt(commit.getIndexedAt());
             current.setStatus(commit.getStatus());
             current.setSummary(commit.getSummary());
+            current.setModuleSummary(commit.getModuleSummary());
             current.setLanguages(commit.getLanguages());
             current.setReadmePath(commit.getReadmePath());
             current.setReadmePreview(commit.getReadmePreview());
@@ -170,7 +185,7 @@ public class KnowledgeStore {
         return commitRepository.save(commit);
     }
 
-    public static CommitFile newFile(String repoId, String commitSha, String path, String hash, String language, int size) {
+    public static CommitFile newFile(String repoId, String commitSha, String path, String hash, String language, int size, String summary) {
         CommitFile file = new CommitFile();
         file.setId(new CommitFileId(commitSha, path));
         file.setRepoId(repoId);
@@ -178,15 +193,17 @@ public class KnowledgeStore {
         file.setFileType("file");
         file.setSize(size);
         file.setLanguage(language);
+        file.setSummary(summary);
         return file;
     }
 
-    public static CommitChunk newChunk(String repoId, String commitSha, String filePath, int chunkIndex, String content, int startLine) {
+    public static CommitChunk newChunk(String repoId, String commitSha, String filePath, int chunkIndex, String content, int startLine, byte[] embedding) {
         CommitChunk chunk = new CommitChunk();
         chunk.setId(new CommitChunkId(commitSha, filePath, chunkIndex));
         chunk.setRepoId(repoId);
         chunk.setContent(content);
         chunk.setStartLine(startLine);
+        chunk.setEmbedding(embedding);
         return chunk;
     }
 
