@@ -1,0 +1,21 @@
+# 生产环境配置 — MySQL 数据库
+# 启动方式: java -jar app.jar --spring.profiles.active=prod
+# 或设置环境变量: SPRING_PROFILES_ACTIVE=prod
+
+spring:
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/repopilot?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: update      # 生产首次用 update 自动建表；稳定后可改为 validate
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+  sql:
+    init:
+      mode: never           # 关闭 schema.sql，由 Hibernate DDL 管理表结构
