@@ -20,8 +20,13 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        // 同时允许配置的前端地址 + 本地开发地址
         registry.addMapping("/**")
-                .allowedOrigins(frontendUrl)
+                .allowedOrigins(
+                        frontendUrl,
+                        "http://localhost:5173",
+                        "http://127.0.0.1:5173"
+                )
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true);
