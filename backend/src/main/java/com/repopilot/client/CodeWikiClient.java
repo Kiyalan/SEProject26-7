@@ -141,19 +141,70 @@ public class CodeWikiClient {
     }
 
     private <T> T get(String path, Class<T> type, String operation) {
-        try {
-            return http.get().uri(path).retrieve().body(type);
-        } catch (RestClientException ex) {
-            throw mapped(operation, ex);
-        }
+        return executeWithRetry(() -> http.get().uri(path).retrieve().body(type), operation);
     }
 
     private <T> T post(String path, Object body, Class<T> type, String operation) {
-        try {
-            return http.post().uri(path).body(body).retrieve().body(type);
-        } catch (RestClientException ex) {
-            throw mapped(operation, ex);
+        return executeWithRetry(() -> http.post().uri(path).body(body).retrieve().body(type), operation);
+    }
+
+    /**
+     * 重试包装：连接断开/EOF 等瞬时错误最多重试 3 次，间隔 5-30 秒递增。
+     */
+    private <T> T executeWithRetry(java.util.function.Supplier<T> action, String operation) {
+        int maxRetries = 3;
+        long waitMs = 5000;
+        RestClientException lastEx = null;
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return action.get();
+            } catch (RestClientException ex) {
+                lastEx = ex;
+                boolean retryable = isRetryable(ex);
+                if (!retryable || attempt == maxRetries) {
+                    throw mapped(operation, ex);
+                }
+                try {
+                    Thread.sleep(waitMs * (attempt + 1));
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw mapped(operation, ex);
+                }
+            }
         }
+        throw mapped(operation, lastEx);
+    }
+
+    /**
+     * 判断是否应该重试：连接断开、EOF、HTTP 502/503/504
+     */
+    private boolean isRetryable(Exception ex) {
+        String message = (ex.getMessage() == null ? "" : ex.getMessage()).toLowerCase();
+        // 连接级别的错误
+        if (message.contains("unexpected end of file") ||
+            message.contains("connection reset") ||
+            message.contains("broken pipe") ||
+            message.contains("timeout") ||
+            message.contains("connect timed out")) {
+            return true;
+        }
+        // HTTP 5xx
+        if (ex instanceof RestClientResponseException response) {
+            int code = response.getStatusCode().value();
+            return code == 502 || code == 503 || code == 504;
+        }
+        // 网络 I/O 异常
+        Throwable cause = ex.getCause();
+        while (cause != null) {
+            String causeMsg = (cause.getMessage() == null ? "" : cause.getMessage()).toLowerCase();
+            if (causeMsg.contains("unexpected end of file") ||
+                causeMsg.contains("connection reset") ||
+                causeMsg.contains("broken pipe")) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     private JsonNode getWithQuery(String path, JsonNode parameters, String operation) {
