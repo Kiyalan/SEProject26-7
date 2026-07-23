@@ -3,7 +3,6 @@ package com.repopilot.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.repopilot.client.GitHubClient;
 import com.repopilot.entity.RepoIndex;
-import com.repopilot.repository.RepoCommitRepository;
 import com.repopilot.repository.RepoIndexRepository;
 import org.springframework.stereotype.Service;
 
@@ -14,12 +13,10 @@ public class PortfolioService {
 
     private final GitHubClient github;
     private final RepoIndexRepository repoIndexRepository;
-    private final RepoCommitRepository commitRepository;
 
-    public PortfolioService(GitHubClient github, RepoIndexRepository repoIndexRepository, RepoCommitRepository commitRepository) {
+    public PortfolioService(GitHubClient github, RepoIndexRepository repoIndexRepository) {
         this.github = github;
         this.repoIndexRepository = repoIndexRepository;
-        this.commitRepository = commitRepository;
     }
     public Map<String, Object> overview(String token, int maxRepos) {
         JsonNode repos = github.get("/user/repos", token, Map.of(
@@ -142,19 +139,16 @@ public class PortfolioService {
     }
 
     private Map<String, Map<String, Object>> localIndexMap() {
-        Map<String, Long> commitCounts = new HashMap<>();
-        for (RepoIndex index : repoIndexRepository.findAll()) {
-            commitCounts.put(index.getRepoId(), commitRepository.countByRepoId(index.getRepoId()));
-        }
         Map<String, Map<String, Object>> result = new HashMap<>();
         for (RepoIndex row : repoIndexRepository.findAll()) {
             String repoId = row.getRepoId();
+            boolean ready = "ready".equals(row.getStatus());
             result.put(repoId, Map.of(
-                    "indexed", "ready".equals(row.getStatus()),
+                    "indexed", ready,
                     "indexedAt", Objects.toString(row.getIndexedAt(), ""),
                     "fileCount", row.getFileCount() == null ? 0 : row.getFileCount(),
                     "chunkCount", row.getChunkCount() == null ? 0 : row.getChunkCount(),
-                    "commitSnapshots", commitCounts.getOrDefault(repoId, 0L)
+                    "commitSnapshots", ready ? 1 : 0
             ));
         }
         return result;

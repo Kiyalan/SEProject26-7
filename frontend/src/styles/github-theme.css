@@ -597,6 +597,68 @@ body {
   }
 }
 
+@keyframes rp-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@keyframes rp-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+@keyframes rp-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+
+.rp-progress {
+  height: 8px;
+  background: var(--gh-canvas-inset);
+  border: 1px solid var(--gh-border-muted);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.rp-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #1f883d, #2da44e);
+  border-radius: 999px;
+  transition: width 0.35s ease;
+}
+
+.rp-progress-bar.indeterminate {
+  width: 40%;
+  animation: rp-indeterminate 1.2s ease-in-out infinite;
+}
+
+.rp-typing {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.rp-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gh-fg-muted);
+  animation: rp-dot 1.2s infinite ease-in-out;
+}
+
+.rp-typing span:nth-child(2) { animation-delay: 0.15s; }
+.rp-typing span:nth-child(3) { animation-delay: 0.3s; }
+
+.rp-loading-pulse {
+  animation: rp-pulse 1.4s ease-in-out infinite;
+}
+
+.rp-intent {
+  font-size: 12px;
+}
+
 /* Ant Design overrides for GitHub-like feel */
 .ant-table {
   background: transparent !important;

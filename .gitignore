@@ -27,8 +27,10 @@ __pycache__/
 backend/.env
 prototype/**/.env
 
-# Runtime data (H2 DB, LLM config with API keys)
+# Runtime data (H2 DB, LLM config with API keys, cloned repos)
 backend/data/
+!backend/data/repos/
+!backend/data/repos/.gitkeep
 data/
 
 # Logs

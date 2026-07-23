@@ -2,6 +2,7 @@ package com.repopilot.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.repopilot.client.GitHubClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -11,6 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.Executor;
 
 @Service
 public class GitActionService {
@@ -19,20 +21,42 @@ public class GitActionService {
 
     private final GitHubClient github;
     private final KnowledgeService knowledgeService;
+    private final KnowledgeBuildTaskService taskService;
+    private final Executor knowledgeBuildExecutor;
+    private final RepoAuthorizationService authorizationService;
 
-    public GitActionService(GitHubClient github, KnowledgeService knowledgeService) {
+    public GitActionService(GitHubClient github, KnowledgeService knowledgeService,
+                            KnowledgeBuildTaskService taskService,
+                            @Qualifier("knowledgeBuildExecutor") Executor knowledgeBuildExecutor,
+                            RepoAuthorizationService authorizationService) {
         this.github = github;
         this.knowledgeService = knowledgeService;
+        this.taskService = taskService;
+        this.knowledgeBuildExecutor = knowledgeBuildExecutor;
+        this.authorizationService = authorizationService;
     }
 
     public Map<String, Object> execute(String repoId, String token, String action, Map<String, String> params) {
+        authorizationService.requireAccess(repoId, token);
         return switch (action) {
-            case "sync_knowledge" -> knowledgeService.buildKnowledge(repoId, token, false, 30, null);
+            case "sync_knowledge" -> enqueueKnowledgeSync(repoId, token);
             case "create_branch" -> createBranch(repoId, token, params);
             case "commit_file" -> commitFile(repoId, token, params);
             case "create_pr" -> createPullRequest(repoId, token, params);
             default -> throw new IllegalStateException("未知操作: " + action);
         };
+    }
+
+    private Map<String, Object> enqueueKnowledgeSync(String repoId, String token) {
+        String taskId = taskService.create(repoId, "incremental");
+        knowledgeBuildExecutor.execute(() -> {
+            try {
+                knowledgeService.buildKnowledge(repoId, token, false, 30, null, taskId);
+            } catch (Exception ignored) {
+                // KnowledgeService records task failure details.
+            }
+        });
+        return Map.of("taskId", taskId, "repoId", repoId, "status", "queued", "async", true);
     }
 
     public Map<String, Object> executeNl(String repoId, String token, String command) {
@@ -46,7 +70,7 @@ public class GitActionService {
         try {
             Map<String, Object> result = execute(repoId, token, parsed.action(), parsed.params());
             String message = switch (parsed.action()) {
-                case "sync_knowledge" -> "知识库已同步重建";
+                case "sync_knowledge" -> "知识库同步任务已提交";
                 case "create_branch" -> "分支 " + parsed.params().getOrDefault("branch", "") + " 已创建";
                 case "commit_file" -> "已提交 " + parsed.params().getOrDefault("path", "");
                 case "create_pr" -> "PR 已创建";

@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: codewiki
+      POSTGRES_USER: codewiki
+      POSTGRES_PASSWORD: ${CODEWIKI_POSTGRES_PASSWORD:-codewiki}
+    volumes:
+      - codewiki-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codewiki -d codewiki"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  codewiki:
+    build:
+      context: ./services/codewiki
+    image: seproject26-7-codewiki:0.6.5
+    environment:
+      CODEWIKI_DATABASE_URL: postgresql+psycopg://codewiki:${CODEWIKI_POSTGRES_PASSWORD:-codewiki}@postgres:5432/codewiki
+      CODEWIKI_STORAGE_DIR: /app/storage
+      CODEWIKI_LLM__MODE: ${CODEWIKI_LLM__MODE:-sdk}
+      CODEWIKI_LLM__DEFAULT__MODEL: ${CODEWIKI_LLM__DEFAULT__MODEL:-}
+      CODEWIKI_LLM__DEFAULT__PROVIDER_TYPE: ${CODEWIKI_LLM__DEFAULT__PROVIDER_TYPE:-}
+      CODEWIKI_LLM__DEFAULT__ENDPOINT: ${CODEWIKI_LLM__DEFAULT__ENDPOINT:-}
+      CODEWIKI_LLM__DEFAULT__API_KEY: ${CODEWIKI_LLM__DEFAULT__API_KEY:-}
+      CODEWIKI_LLM__PROFILES__EMBEDDING__MODEL: ${CODEWIKI_LLM__PROFILES__EMBEDDING__MODEL:-}
+      CODEWIKI_LLM__PROFILES__EMBEDDING__PROVIDER_TYPE: ${CODEWIKI_LLM__PROFILES__EMBEDDING__PROVIDER_TYPE:-}
+      CODEWIKI_LLM__PROFILES__EMBEDDING__ENDPOINT: ${CODEWIKI_LLM__PROFILES__EMBEDDING__ENDPOINT:-}
+      CODEWIKI_LLM__PROFILES__EMBEDDING__API_KEY: ${CODEWIKI_LLM__PROFILES__EMBEDDING__API_KEY:-}
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - codewiki-storage:/app/storage
+      - ./backend/data/repos:/workspace/repositories/SEProject26-7/backend/data/repos:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  codewiki-postgres-data:
+  codewiki-storage:

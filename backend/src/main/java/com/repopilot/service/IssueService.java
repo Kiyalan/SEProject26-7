@@ -58,17 +58,25 @@ public class IssueService {
     }
 
     public Map<String, Object> analyze(String repoId, Map<String, Object> issue, String token) {
+        return analyze(repoId, issue, token, false);
+    }
+
+    public Map<String, Object> analyze(String repoId, Map<String, Object> issue, String token, boolean force) {
         Map<String, Object> enriched = enrichIssue(repoId, issue, token);
         String issueId = Objects.toString(enriched.get("id"), "");
-        Map<String, Object> cached = issueId.isBlank() ? null : getAnalysis(issueId);
-        if (cached != null) {
-            return cached;
+        if (!force) {
+            Map<String, Object> cached = issueId.isBlank() ? null : getAnalysis(issueId);
+            if (cached != null) {
+                return cached;
+            }
         }
 
         Map<String, Object> result = classifyAndSave(repoId, enriched);
-        enqueue(repoId, enriched);
-        if (pendingByRepo.getOrDefault(repoId, new ArrayDeque<>()).size() >= BATCH_THRESHOLD) {
-            flushBatch(repoId, token);
+        if (!force) {
+            enqueue(repoId, enriched);
+            if (pendingByRepo.getOrDefault(repoId, new ArrayDeque<>()).size() >= BATCH_THRESHOLD) {
+                flushBatch(repoId, token);
+            }
         }
         return result;
     }
@@ -156,9 +164,17 @@ public class IssueService {
         String project = Objects.toString(issue.get("project"), "");
 
         Classification classification = classify(title, body, labels, milestone, project);
-        List<Map<String, Object>> contexts = knowledgeService.retrieveChunks(repoId, title + "\n" + body, null, 4);
+        List<Map<String, Object>> contexts;
+        try {
+            contexts = knowledgeService.retrieveChunks(repoId, title + "\n" + body, null, 4);
+        } catch (Exception ignored) {
+            // Knowledge may not be built yet; Issue classification still works without GraphRAG.
+            contexts = List.of();
+        }
         List<Map<String, Object>> relatedFiles = contexts.stream()
-                .map(c -> Map.<String, Object>of("file", c.get("file"), "line", c.get("line")))
+                .map(c -> Map.<String, Object>of(
+                        "file", Objects.toString(c.get("file"), ""),
+                        "line", c.get("line") instanceof Number n ? n.intValue() : 1))
                 .toList();
 
         String summary = buildSummary(classification, title, labels, milestone, relatedFiles);

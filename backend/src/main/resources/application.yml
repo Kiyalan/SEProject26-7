@@ -5,10 +5,15 @@ spring:
   application:
     name: repopilot-backend
   datasource:
-    url: jdbc:h2:file:./data/knowledge;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    url: jdbc:h2:file:./data/knowledge;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
     username: sa
     password:
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 30000
+      max-lifetime: 1800000
+      keepalive-time: 120000
   jpa:
     hibernate:
       ddl-auto: none
@@ -32,3 +37,15 @@ repopilot:
     embedding-model: ${LLM_EMBEDDING_MODEL:openai/text-embedding-3-small}
     http-referer: ${LLM_HTTP_REFERER:http://localhost:5173}
     app-title: ${LLM_APP_TITLE:RepoPilot}
+  codewiki:
+    base-url: ${CODEWIKI_BASE_URL:http://127.0.0.1:8001}
+    host-repo-root: ${CODEWIKI_HOST_REPO_ROOT:./data/repos}
+    container-repo-root: ${CODEWIKI_CONTAINER_REPO_ROOT:/workspace/repositories/SEProject26-7/backend/data/repos}
+    include-embeddings: ${CODEWIKI_INCLUDE_EMBEDDINGS:false}
+    connect-timeout-seconds: ${CODEWIKI_CONNECT_TIMEOUT_SECONDS:15}
+    read-timeout-seconds: ${CODEWIKI_READ_TIMEOUT_SECONDS:3600}
+    run-poll-seconds: ${CODEWIKI_RUN_POLL_SECONDS:5}
+    run-timeout-seconds: ${CODEWIKI_RUN_TIMEOUT_SECONDS:7200}
+  admin:
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:repopilot2026}

@@ -20,6 +20,27 @@ public class ProgressService {
         states.put(key, state);
     }
 
+    public boolean isRunning(String key) {
+        State state = states.get(key);
+        return state != null && "running".equals(state.status);
+    }
+
+    public void setTotal(String key, int total) {
+        State state = states.get(key);
+        if (state != null) {
+            state.total = Math.max(total, 1);
+        }
+    }
+
+    public void setDone(String key, int done, String message) {
+        State state = states.get(key);
+        if (state == null) {
+            return;
+        }
+        state.done = Math.min(Math.max(done, 0), state.total);
+        state.message = message;
+    }
+
     public void step(String key, String message) {
         State state = states.get(key);
         if (state == null) {

@@ -60,6 +60,31 @@ public class RepoIndex {
     @Column(name = "active_commit_sha", length = 64)
     private String activeCommitSha = "";
 
+    @Column(name = "quality_status", length = 32)
+    private String qualityStatus = "unknown";
+
+    @Column(name = "quality_score")
+    private Double qualityScore = 0.0;
+
+    @Lob
+    @Column(name = "quality_report")
+    private String qualityReport = "{}";
+
+    @Column(name = "last_task_id", length = 64)
+    private String lastTaskId = "";
+
+    @Column(name = "codewiki_repo_id", length = 128)
+    private String codeWikiRepoId = "";
+
+    @Column(name = "graph_node_count")
+    private Integer graphNodeCount = 0;
+
+    @Column(name = "graph_edge_count")
+    private Integer graphEdgeCount = 0;
+
+    @Column(name = "graph_community_count")
+    private Integer graphCommunityCount = 0;
+
     public String getRepoId() {
         return repoId;
     }
@@ -178,5 +203,69 @@ public class RepoIndex {
 
     public void setActiveCommitSha(String activeCommitSha) {
         this.activeCommitSha = activeCommitSha;
+    }
+
+    public String getQualityStatus() {
+        return qualityStatus;
+    }
+
+    public void setQualityStatus(String qualityStatus) {
+        this.qualityStatus = qualityStatus;
+    }
+
+    public Double getQualityScore() {
+        return qualityScore;
+    }
+
+    public void setQualityScore(Double qualityScore) {
+        this.qualityScore = qualityScore;
+    }
+
+    public String getQualityReport() {
+        return qualityReport;
+    }
+
+    public void setQualityReport(String qualityReport) {
+        this.qualityReport = qualityReport;
+    }
+
+    public String getLastTaskId() {
+        return lastTaskId;
+    }
+
+    public void setLastTaskId(String lastTaskId) {
+        this.lastTaskId = lastTaskId;
+    }
+
+    public String getCodeWikiRepoId() {
+        return codeWikiRepoId;
+    }
+
+    public void setCodeWikiRepoId(String codeWikiRepoId) {
+        this.codeWikiRepoId = codeWikiRepoId;
+    }
+
+    public Integer getGraphNodeCount() {
+        return graphNodeCount;
+    }
+
+    public void setGraphNodeCount(Integer graphNodeCount) {
+        this.graphNodeCount = graphNodeCount;
+    }
+
+    public Integer getGraphEdgeCount() {
+        return graphEdgeCount;
+    }
+
+    public void setGraphEdgeCount(Integer graphEdgeCount) {
+        this.graphEdgeCount = graphEdgeCount;
+    }
+
+    public Integer getGraphCommunityCount() {
+        return graphCommunityCount;
+    }
+
+    public void setGraphCommunityCount(Integer graphCommunityCount) {
+        this.graphCommunityCount = graphCommunityCount;
     }
 }

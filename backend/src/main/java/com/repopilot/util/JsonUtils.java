@@ -44,4 +44,12 @@ public final class JsonUtils {
             return List.of();
         }
     }
+
+    public static Map<String, Object> parseObject(String json) {
+        try {
+            return MAPPER.readValue(json == null || json.isBlank() ? "{}" : json, new TypeReference<>() {});
+        } catch (Exception ex) {
+            return Map.of();
+        }
+    }
 }

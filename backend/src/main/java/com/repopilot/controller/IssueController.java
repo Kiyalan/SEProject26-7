@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.repopilot.client.GitHubClient;
 import com.repopilot.security.AuthSupport;
 import com.repopilot.service.IssueService;
+import com.repopilot.service.RepoAuthorizationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,10 +19,13 @@ public class IssueController {
 
     private final GitHubClient github;
     private final IssueService issueService;
+    private final RepoAuthorizationService authorizationService;
 
-    public IssueController(GitHubClient github, IssueService issueService) {
+    public IssueController(GitHubClient github, IssueService issueService,
+                           RepoAuthorizationService authorizationService) {
         this.github = github;
         this.issueService = issueService;
+        this.authorizationService = authorizationService;
     }
 
     @GetMapping("/api/repos/{repoId}/issues")
@@ -84,11 +88,14 @@ public class IssueController {
     ) {
         String token = AuthSupport.requireToken(authorization);
         String repoId = Objects.toString(body.get("repoId"), "");
+        authorizationService.requireAccess(repoId, token);
         @SuppressWarnings("unchecked")
         Map<String, Object> issue = body.get("issue") instanceof Map<?, ?> map
                 ? (Map<String, Object>) map
                 : Map.of();
-        return issueService.analyze(repoId, issue, token);
+        boolean force = Boolean.TRUE.equals(body.get("force"))
+                || "true".equalsIgnoreCase(Objects.toString(body.get("force"), ""));
+        return issueService.analyze(repoId, issue, token, force);
     }
 
 }
