@@ -152,6 +152,51 @@ public class AdminController {
         return Map.of("success", true);
     }
 
+    @PostMapping("/users/{id}/ban")
+    Map<String, Object> banUser(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable Long id
+    ) {
+        String admin = authorize(authorization);
+        try {
+            return adminService.banUser(admin, id);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
+    }
+
+    @PostMapping("/users/{id}/unban")
+    Map<String, Object> unbanUser(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable Long id
+    ) {
+        String admin = authorize(authorization);
+        try {
+            return adminService.unbanUser(admin, id);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
+    }
+
+    @GetMapping("/users/stats")
+    Map<String, Object> userStats(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        authorize(authorization);
+        return adminService.globalUserStats();
+    }
+
+    @GetMapping("/users/{id}/stats")
+    Map<String, Object> userDetailStats(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable Long id
+    ) {
+        String admin = authorize(authorization);
+        try {
+            return adminService.userStats(admin, id);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
+    }
+
     private String authorize(String authorization) {
         try {
             return adminService.requireAdmin(authorization);

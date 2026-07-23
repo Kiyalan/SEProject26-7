@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.repopilot.config.AppProperties;
 import com.repopilot.client.GitHubClient;
 import com.repopilot.security.JwtUtil;
+import com.repopilot.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -25,14 +26,16 @@ public class AuthController {
     private final AppProperties properties;
     private final GitHubClient github;
     private final JwtUtil jwtUtil;
+    private final UserService userService;
     private final RestClient oauthClient = RestClient.builder().build();
     private final Set<String> oauthStates = ConcurrentHashMap.newKeySet();
     private final SecureRandom random = new SecureRandom();
 
-    public AuthController(AppProperties properties, GitHubClient github, JwtUtil jwtUtil) {
+    public AuthController(AppProperties properties, GitHubClient github, JwtUtil jwtUtil, UserService userService) {
         this.properties = properties;
         this.github = github;
         this.jwtUtil = jwtUtil;
+        this.userService = userService;
     }
 
     @GetMapping("/auth/github")
@@ -88,6 +91,14 @@ public class AuthController {
 
         JsonNode user = github.get("/user", accessToken);
         String username = user.path("login").asText("");
+        String avatarUrl = user.path("avatar_url").asText("");
+
+        // 写入 app_users 表（首次登录自动创建），被封禁用户会在此处被拦截
+        try {
+            userService.findOrCreateByGithubLogin(username, avatarUrl);
+        } catch (IllegalArgumentException ex) {
+            return new RedirectView(frontend + "/login?error=" + encode(ex.getMessage()));
+        }
 
         // 签发 JWT（内含 username + github_token），不再裸传 GitHub token
         String jwt = jwtUtil.createToken(username, accessToken);

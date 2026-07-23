@@ -163,5 +163,12 @@ CREATE TABLE IF NOT EXISTS app_users (
     role VARCHAR(32) NOT NULL DEFAULT 'user',
     status VARCHAR(32) NOT NULL DEFAULT 'active',
     created_at VARCHAR(32) DEFAULT '',
-    last_login_at VARCHAR(32) DEFAULT ''
+    last_login_at VARCHAR(32) DEFAULT '',
+    avatar_url VARCHAR(512) DEFAULT '',
+    github_login VARCHAR(64) DEFAULT ''
 );
+
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512) DEFAULT '';
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS github_login VARCHAR(64) DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_app_users_github_login ON app_users(github_login);

@@ -31,6 +31,12 @@ public class UserEntity {
     @Column(length = 32)
     private String lastLoginAt = "";
 
+    @Column(length = 512)
+    private String avatarUrl = "";
+
+    @Column(length = 64)
+    private String githubLogin = "";
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -54,4 +60,10 @@ public class UserEntity {
 
     public String getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(String lastLoginAt) { this.lastLoginAt = lastLoginAt; }
+
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+
+    public String getGithubLogin() { return githubLogin; }
+    public void setGithubLogin(String githubLogin) { this.githubLogin = githubLogin; }
 }

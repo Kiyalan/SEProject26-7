@@ -1,6 +1,5 @@
 package com.repopilot.service;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -22,36 +21,34 @@ public class AdminService {
 
     private final JdbcTemplate jdbc;
     private final UserService userService;
-    private final String adminUsername;
-    private final String adminPassword;
     private final ConcurrentHashMap<String, Session> sessions = new ConcurrentHashMap<>();
 
-    public AdminService(
-            JdbcTemplate jdbc,
-            UserService userService,
-            @Value("${repopilot.admin.username:admin}") String adminUsername,
-            @Value("${repopilot.admin.password:repopilot2026}") String adminPassword
-    ) {
+    public AdminService(JdbcTemplate jdbc, UserService userService) {
         this.jdbc = jdbc;
         this.userService = userService;
-        this.adminUsername = adminUsername;
-        this.adminPassword = adminPassword;
     }
 
+    /**
+     * 管理员登录 —— 走 app_users 表，不再硬编码。
+     */
     public Map<String, Object> login(String username, String password) {
-        if (username == null || password == null
-                || !adminUsername.equals(username.trim())
-                || !adminPassword.equals(password)) {
+        if (username == null || password == null) {
             throw new IllegalArgumentException("账号或密码错误");
         }
+        // 委托 UserService.login() 做用户名/密码/状态校验
+        Map<String, Object> result = userService.login(username.trim(), password);
+        String role = String.valueOf(result.getOrDefault("role", "user"));
+        if (!"admin".equals(role)) {
+            throw new IllegalArgumentException("无管理员权限");
+        }
         String token = "admin." + UUID.randomUUID().toString().replace("-", "");
-        sessions.put(token, new Session("系统管理员", "super_admin", System.currentTimeMillis()));
-        audit("系统管理员", "login", "admin-console", "success");
-        return Map.of(
-                "token", token,
-                "username", "系统管理员",
-                "role", "super_admin"
-        );
+        sessions.put(token, new Session(
+                String.valueOf(result.get("username")), role, System.currentTimeMillis()));
+        // 覆盖 token 为 admin session token
+        result = new LinkedHashMap<>(result);
+        result.put("token", token);
+        audit(String.valueOf(result.get("username")), "login", "admin-console", "success");
+        return result;
     }
 
     public String requireAdmin(String authorization) {
@@ -88,7 +85,8 @@ public class AdminService {
         stats.put("knowledgeChunks", chunks == null ? 0 : chunks);
         stats.put("memoryEntries", 0);
         stats.put("faqEntries", faq == null ? 0 : faq);
-        stats.put("activeUsers", 1);
+        stats.put("activeUsers", jdbc.queryForObject(
+                "SELECT COUNT(*) FROM app_users WHERE status = 'active'", Integer.class));
         stats.put("openIssues", 0);
         stats.put("syncSuccessRate", rate);
         stats.put("lastFullCheck", LocalDateTime.now(ZoneOffset.UTC).format(TS));
@@ -319,6 +317,34 @@ public class AdminService {
     public void deleteUser(String admin, Long id) {
         userService.deleteUser(id);
         audit(admin, "delete_user", String.valueOf(id), "success");
+    }
+
+    // ── 封禁 / 解禁 ───────────────────────────────────
+
+    public Map<String, Object> banUser(String admin, Long id) {
+        Map<String, Object> user = userService.banUser(id);
+        audit(admin, "ban_user", String.valueOf(id), "success");
+        return user;
+    }
+
+    public Map<String, Object> unbanUser(String admin, Long id) {
+        Map<String, Object> user = userService.unbanUser(id);
+        audit(admin, "unban_user", String.valueOf(id), "success");
+        return user;
+    }
+
+    // ── 用户统计 ───────────────────────────────────────
+
+    public Map<String, Object> globalUserStats() {
+        return userService.getGlobalUserStats();
+    }
+
+    public Map<String, Object> userStats(String admin, Long id) {
+        var user = userService.listAll().stream()
+                .filter(u -> u.get("id").equals(id)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        // listAll 中已经包含了统计信息，直接返回
+        return user;
     }
 
     public void audit(String admin, String action, String target, String result) {
