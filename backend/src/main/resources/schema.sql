@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS repo_index (
     graph_community_count INT DEFAULT 0
 );
 
+-- 迁移：旧表可能缺少 owner_login 列
+ALTER TABLE repo_index ADD COLUMN IF NOT EXISTS owner_login VARCHAR(128) NOT NULL DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS idx_repo_index_owner
     ON repo_index(owner_login);
 
@@ -35,6 +38,8 @@ CREATE TABLE IF NOT EXISTS repo_index_settings (
     max_commits INT DEFAULT 30,
     active_commit_sha VARCHAR(64) DEFAULT ''
 );
+
+ALTER TABLE repo_index_settings ADD COLUMN IF NOT EXISTS owner_login VARCHAR(128) NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS knowledge_build_tasks (
     task_id VARCHAR(64) PRIMARY KEY,
@@ -64,6 +69,8 @@ CREATE TABLE IF NOT EXISTS knowledge_build_tasks (
     quality_score DOUBLE DEFAULT 0,
     quality_report CLOB DEFAULT '{}'
 );
+
+ALTER TABLE knowledge_build_tasks ADD COLUMN IF NOT EXISTS owner_login VARCHAR(128) NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_repo_requested
     ON knowledge_build_tasks(repo_id, requested_at);
@@ -104,6 +111,8 @@ CREATE TABLE IF NOT EXISTS issue_analysis (
     issue_project VARCHAR(255) DEFAULT ''
 );
 
+ALTER TABLE issue_analysis ADD COLUMN IF NOT EXISTS owner_login VARCHAR(128) NOT NULL DEFAULT '';
+
 CREATE TABLE IF NOT EXISTS repo_faq_items (
     id VARCHAR(64) PRIMARY KEY,
     repo_id VARCHAR(64) NOT NULL,
@@ -115,6 +124,8 @@ CREATE TABLE IF NOT EXISTS repo_faq_items (
     confidence DOUBLE DEFAULT 0,
     updated_at VARCHAR(32) NOT NULL
 );
+
+ALTER TABLE repo_faq_items ADD COLUMN IF NOT EXISTS owner_login VARCHAR(128) NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_repo_faq_repo
     ON repo_faq_items(repo_id, category);
