@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS repo_index (
     repo_id VARCHAR(64) PRIMARY KEY,
+    owner_login VARCHAR(128) NOT NULL DEFAULT '',
     full_name VARCHAR(255) NOT NULL,
     default_branch VARCHAR(128),
     indexed_at VARCHAR(32),
@@ -24,8 +25,12 @@ CREATE TABLE IF NOT EXISTS repo_index (
     graph_community_count INT DEFAULT 0
 );
 
+CREATE INDEX IF NOT EXISTS idx_repo_index_owner
+    ON repo_index(owner_login);
+
 CREATE TABLE IF NOT EXISTS repo_index_settings (
     repo_id VARCHAR(64) PRIMARY KEY,
+    owner_login VARCHAR(128) NOT NULL DEFAULT '',
     index_each_commit BOOLEAN DEFAULT FALSE,
     max_commits INT DEFAULT 30,
     active_commit_sha VARCHAR(64) DEFAULT ''
@@ -34,6 +39,7 @@ CREATE TABLE IF NOT EXISTS repo_index_settings (
 CREATE TABLE IF NOT EXISTS knowledge_build_tasks (
     task_id VARCHAR(64) PRIMARY KEY,
     repo_id VARCHAR(64) NOT NULL,
+    owner_login VARCHAR(128) NOT NULL DEFAULT '',
     status VARCHAR(32) NOT NULL,
     mode VARCHAR(32) DEFAULT 'incremental',
     requested_at VARCHAR(32) NOT NULL,
@@ -62,6 +68,9 @@ CREATE TABLE IF NOT EXISTS knowledge_build_tasks (
 CREATE INDEX IF NOT EXISTS idx_knowledge_tasks_repo_requested
     ON knowledge_build_tasks(repo_id, requested_at);
 
+CREATE INDEX IF NOT EXISTS idx_knowledge_build_tasks_owner
+    ON knowledge_build_tasks(owner_login);
+
 CREATE TABLE IF NOT EXISTS knowledge_build_errors (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     task_id VARCHAR(64) NOT NULL,
@@ -79,6 +88,7 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_errors_task
 CREATE TABLE IF NOT EXISTS issue_analysis (
     issue_id VARCHAR(64) PRIMARY KEY,
     repo_id VARCHAR(64) NOT NULL,
+    owner_login VARCHAR(128) NOT NULL DEFAULT '',
     issue_number INT,
     issue_title CLOB NOT NULL,
     issue_type VARCHAR(64) NOT NULL,
@@ -97,6 +107,7 @@ CREATE TABLE IF NOT EXISTS issue_analysis (
 CREATE TABLE IF NOT EXISTS repo_faq_items (
     id VARCHAR(64) PRIMARY KEY,
     repo_id VARCHAR(64) NOT NULL,
+    owner_login VARCHAR(128) NOT NULL DEFAULT '',
     category VARCHAR(64) NOT NULL,
     question CLOB NOT NULL,
     answer CLOB NOT NULL,

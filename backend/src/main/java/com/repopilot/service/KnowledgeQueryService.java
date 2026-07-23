@@ -27,7 +27,7 @@ public class KnowledgeQueryService {
         this.knowledgeService = knowledgeService;
     }
 
-    public QueryResult retrieve(String repoId, String question) {
+    public QueryResult retrieve(String repoId, String question, String ownerLogin) {
         String lower = question.toLowerCase();
         Set<String> intents = new LinkedHashSet<>();
         if (containsAny(lower, "commit", "提交", "版本历史", "提交历史", "弃用", "废弃", "采用", "revert", "回滚")) {
@@ -51,26 +51,26 @@ public class KnowledgeQueryService {
         List<Map<String, Object>> contexts = new ArrayList<>();
         try {
             if (intents.contains("history")) {
-                contexts.addAll(knowledgeService.commitHistoryContexts(repoId, requestedCommitCount(question)));
+                contexts.addAll(knowledgeService.commitHistoryContexts(repoId, ownerLogin, requestedCommitCount(question)));
             }
             if (intents.contains("overview")) {
-                contexts.add(knowledgeService.repositoryOverviewContext(repoId));
+                contexts.add(knowledgeService.repositoryOverviewContext(repoId, ownerLogin));
                 contexts.addAll(knowledgeService.retrieveChunksByPathHints(
-                        repoId, question + " 项目说明 README", List.of("readme", "openapi", "package.json", "pom.xml"), 8));
+                        repoId, ownerLogin, question + " 项目说明 README", List.of("readme", "openapi", "package.json", "pom.xml"), 8));
             }
             if (intents.contains("api")) {
-                contexts.addAll(knowledgeService.apiSpecificationContexts(repoId, 100));
+                contexts.addAll(knowledgeService.apiSpecificationContexts(repoId, ownerLogin, 100));
                 if (contexts.stream().noneMatch(row -> "api_spec".equals(row.get("sourceType")))) {
                     contexts.addAll(knowledgeService.retrieveChunksByPathHints(
-                            repoId, question + " controller endpoint operationId", API_PATH_HINTS, 15));
+                            repoId, ownerLogin, question + " controller endpoint operationId", API_PATH_HINTS, 15));
                 }
             }
             if (intents.contains("deployment")) {
                 contexts.addAll(knowledgeService.retrieveChunksByPathHints(
-                        repoId, question + " 启动 配置 端口 环境变量", DEPLOY_PATH_HINTS, 15));
+                        repoId, ownerLogin, question + " 启动 配置 端口 环境变量", DEPLOY_PATH_HINTS, 15));
             }
             if (intents.contains("code") || contexts.isEmpty()) {
-                contexts.addAll(knowledgeService.retrieveChunks(repoId, question, null, 10));
+                contexts.addAll(knowledgeService.retrieveChunks(repoId, ownerLogin, question, null, 10));
             }
         } catch (Exception ex) {
             // Index may be missing or CodeWiki offline; Chat still returns a structured fallback.

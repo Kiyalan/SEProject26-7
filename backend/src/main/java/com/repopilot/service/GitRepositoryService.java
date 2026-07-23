@@ -22,53 +22,58 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class GitRepositoryService {
     private final AppProperties.CodeWiki properties;
+    private final ConcurrentHashMap<String, Object> syncLocks = new ConcurrentHashMap<>();
 
     public GitRepositoryService(AppProperties properties) {
         this.properties = properties.codewiki();
     }
 
-    public synchronized SyncResult sync(String repoId, String fullName, String defaultBranch, String token) {
-        Path path = hostPath(repoId);
-        UsernamePasswordCredentialsProvider credentials =
-                new UsernamePasswordCredentialsProvider("x-access-token", token);
-        try {
-            Files.createDirectories(path.getParent());
-            boolean cloned = !Files.isDirectory(path.resolve(".git"));
-            if (cloned) {
-                try (Git ignored = Git.cloneRepository()
-                        .setURI("https://github.com/" + fullName + ".git")
-                        .setDirectory(path.toFile())
-                        .setCredentialsProvider(credentials)
-                        .setCloneAllBranches(false)
-                        .setBranch(defaultBranch)
-                        .call()) {
-                    // Token is supplied only through JGit's credentials provider.
+    public SyncResult sync(String repoId, String fullName, String ownerLogin, String token, String branch) {
+        Object lock = syncLocks.computeIfAbsent(repoId + "/" + ownerLogin, k -> new Object());
+        synchronized (lock) {
+            Path path = hostPath(repoId, ownerLogin);
+            UsernamePasswordCredentialsProvider credentials =
+                    new UsernamePasswordCredentialsProvider("x-access-token", token);
+            try {
+                Files.createDirectories(path.getParent());
+                boolean cloned = !Files.isDirectory(path.resolve(".git"));
+                if (cloned) {
+                    try (Git ignored = Git.cloneRepository()
+                            .setURI("https://github.com/" + fullName + ".git")
+                            .setDirectory(path.toFile())
+                            .setCredentialsProvider(credentials)
+                            .setCloneAllBranches(false)
+                            .setBranch(branch)
+                            .call()) {
+                        // Token is supplied only through JGit's credentials provider.
+                    }
                 }
+                try (Git git = Git.open(path.toFile())) {
+                    Repository repository = git.getRepository();
+                    String oldHead = repository.resolve("HEAD") == null ? "" : repository.resolve("HEAD").name();
+                    git.fetch().setRemote("origin").setCredentialsProvider(credentials).call();
+                    ObjectId remoteHead = repository.resolve("refs/remotes/origin/" + branch);
+                    if (remoteHead == null) throw new IllegalStateException("远端默认分支不存在: " + branch);
+                    git.checkout().setName(branch).setCreateBranch(
+                            repository.findRef(branch) == null).setStartPoint("origin/" + branch).call();
+                    git.reset().setMode(ResetCommand.ResetType.HARD).setRef(remoteHead.name()).call();
+                    return new SyncResult(path, containerPath(repoId, ownerLogin), cloned, oldHead, remoteHead.name());
+                }
+            } catch (Exception ex) {
+                throw new IllegalStateException("同步 Git 仓库失败: " + rootMessage(ex), ex);
+            } finally {
+                credentials.clear();
             }
-            try (Git git = Git.open(path.toFile())) {
-                Repository repository = git.getRepository();
-                String oldHead = repository.resolve("HEAD") == null ? "" : repository.resolve("HEAD").name();
-                git.fetch().setRemote("origin").setCredentialsProvider(credentials).call();
-                ObjectId remoteHead = repository.resolve("refs/remotes/origin/" + defaultBranch);
-                if (remoteHead == null) throw new IllegalStateException("远端默认分支不存在: " + defaultBranch);
-                git.checkout().setName(defaultBranch).setCreateBranch(
-                        repository.findRef(defaultBranch) == null).setStartPoint("origin/" + defaultBranch).call();
-                git.reset().setMode(ResetCommand.ResetType.HARD).setRef(remoteHead.name()).call();
-                return new SyncResult(path, containerPath(repoId), cloned, oldHead, remoteHead.name());
-            }
-        } catch (Exception ex) {
-            throw new IllegalStateException("同步 Git 仓库失败: " + rootMessage(ex), ex);
-        } finally {
-            credentials.clear();
         }
     }
 
-    public List<Map<String, Object>> history(String repoId, int limit) {
-        try (Git git = Git.open(hostPath(repoId).toFile())) {
+    public List<Map<String, Object>> history(String repoId, String ownerLogin, int limit) {
+        try (Git git = Git.open(hostPath(repoId, ownerLogin).toFile())) {
             List<Map<String, Object>> result = new ArrayList<>();
             int index = 0;
             for (RevCommit commit : git.log().setMaxCount(Math.min(Math.max(limit, 1), 50)).call()) {
@@ -98,8 +103,8 @@ public class GitRepositoryService {
         }
     }
 
-    public Map<String, Object> compare(String repoId, String baseSha, String headSha) {
-        try (Git git = Git.open(hostPath(repoId).toFile());
+    public Map<String, Object> compare(String repoId, String ownerLogin, String baseSha, String headSha) {
+        try (Git git = Git.open(hostPath(repoId, ownerLogin).toFile());
              RevWalk walk = new RevWalk(git.getRepository())) {
             RevCommit base = walk.parseCommit(git.getRepository().resolve(baseSha));
             RevCommit head = walk.parseCommit(git.getRepository().resolve(headSha));
@@ -118,12 +123,13 @@ public class GitRepositoryService {
         }
     }
 
-    public Path hostPath(String repoId) {
-        return Path.of(properties.hostRepoRoot()).toAbsolutePath().normalize().resolve(safeRepoId(repoId));
+    public Path hostPath(String repoId, String ownerLogin) {
+        return Path.of(properties.hostRepoRoot()).toAbsolutePath().normalize()
+                .resolve(safeName(ownerLogin)).resolve(safeRepoId(repoId));
     }
 
-    private String containerPath(String repoId) {
-        return Path.of(properties.containerRepoRoot()).resolve(safeRepoId(repoId))
+    private String containerPath(String repoId, String ownerLogin) {
+        return Path.of(properties.containerRepoRoot()).resolve(safeName(ownerLogin)).resolve(safeRepoId(repoId))
                 .toString().replace('\\', '/');
     }
 
@@ -145,6 +151,10 @@ public class GitRepositoryService {
             throw new IllegalArgumentException("非法 repoId");
         }
         return repoId;
+    }
+
+    private String safeName(String name) {
+        return name.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     private static String rootMessage(Throwable ex) {

@@ -24,6 +24,7 @@ public class FaqController {
             @PathVariable String repoId,
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         authorize(repoId, authorization);
         return faqService.list(repoId);
     }
@@ -34,9 +35,10 @@ public class FaqController {
             @RequestBody(required = false) Map<String, Object> body,
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         authorize(repoId, authorization);
         int maxItems = body != null && body.get("maxItems") instanceof Number n ? n.intValue() : 12;
-        return faqService.generate(repoId, maxItems);
+        return faqService.generate(repoId, ownerLogin, maxItems);
     }
 
     @GetMapping("/export")
@@ -45,6 +47,7 @@ public class FaqController {
             @RequestParam(defaultValue = "markdown") String format,
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         authorize(repoId, authorization);
         return faqService.export(repoId, format);
     }

@@ -43,7 +43,7 @@ public class IssueService {
         this.progress = progress;
     }
 
-    public void onIssuesLoaded(String repoId, List<Map<String, Object>> issues, String token) {
+    public void onIssuesLoaded(String repoId, List<Map<String, Object>> issues, String token, String ownerLogin) {
         Deque<Map<String, Object>> queue = pendingByRepo.computeIfAbsent(repoId, k -> new ArrayDeque<>());
         for (Map<String, Object> issue : issues) {
             String issueId = Objects.toString(issue.get("id"), "");
@@ -53,15 +53,15 @@ public class IssueService {
             queue.addLast(new LinkedHashMap<>(issue));
         }
         if (queue.size() >= BATCH_THRESHOLD) {
-            flushBatch(repoId, token);
+            flushBatch(repoId, token, ownerLogin);
         }
     }
 
-    public Map<String, Object> analyze(String repoId, Map<String, Object> issue, String token) {
-        return analyze(repoId, issue, token, false);
+    public Map<String, Object> analyze(String repoId, Map<String, Object> issue, String token, String ownerLogin) {
+        return analyze(repoId, issue, token, false, ownerLogin);
     }
 
-    public Map<String, Object> analyze(String repoId, Map<String, Object> issue, String token, boolean force) {
+    public Map<String, Object> analyze(String repoId, Map<String, Object> issue, String token, boolean force, String ownerLogin) {
         Map<String, Object> enriched = enrichIssue(repoId, issue, token);
         String issueId = Objects.toString(enriched.get("id"), "");
         if (!force) {
@@ -71,11 +71,11 @@ public class IssueService {
             }
         }
 
-        Map<String, Object> result = classifyAndSave(repoId, enriched);
+        Map<String, Object> result = classifyAndSave(repoId, enriched, ownerLogin);
         if (!force) {
             enqueue(repoId, enriched);
             if (pendingByRepo.getOrDefault(repoId, new ArrayDeque<>()).size() >= BATCH_THRESHOLD) {
-                flushBatch(repoId, token);
+                flushBatch(repoId, token, ownerLogin);
             }
         }
         return result;
@@ -92,7 +92,7 @@ public class IssueService {
         }
     }
 
-    private void flushBatch(String repoId, String token) {
+    private void flushBatch(String repoId, String token, String ownerLogin) {
         Deque<Map<String, Object>> queue = pendingByRepo.get(repoId);
         if (queue == null || queue.size() < BATCH_THRESHOLD) {
             return;
@@ -115,7 +115,7 @@ public class IssueService {
                     continue;
                 }
                 try {
-                    classifyAndSave(repoId, enrichIssue(repoId, issue, token));
+                    classifyAndSave(repoId, enrichIssue(repoId, issue, token), ownerLogin);
                     done++;
                     progress.step(progressKey, "已分析 " + done + "/" + batch.size());
                 } catch (Exception ex) {
@@ -156,7 +156,7 @@ public class IssueService {
     }
 
     @Transactional
-    private Map<String, Object> classifyAndSave(String repoId, Map<String, Object> issue) {
+    private Map<String, Object> classifyAndSave(String repoId, Map<String, Object> issue, String ownerLogin) {
         String title = Objects.toString(issue.get("title"), "");
         String body = Objects.toString(issue.get("body"), "");
         List<String> labels = parseLabels(issue.get("labels"));
@@ -166,7 +166,7 @@ public class IssueService {
         Classification classification = classify(title, body, labels, milestone, project);
         List<Map<String, Object>> contexts;
         try {
-            contexts = knowledgeService.retrieveChunks(repoId, title + "\n" + body, null, 4);
+            contexts = knowledgeService.retrieveChunks(repoId, ownerLogin, title + "\n" + body, null, 4);
         } catch (Exception ignored) {
             // Knowledge may not be built yet; Issue classification still works without GraphRAG.
             contexts = List.of();

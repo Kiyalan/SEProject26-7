@@ -37,6 +37,7 @@ public class IssueController {
             @RequestParam(defaultValue = "1") int page
     ) {
         String token = AuthSupport.requireToken(authorization);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         JsonNode repo = github.get("/repositories/" + repoId, token);
         String fullName = repo.path("full_name").asText();
         JsonNode issues = github.get("/repos/" + fullName + "/issues", token, Map.of(
@@ -55,7 +56,7 @@ public class IssueController {
                 items.add(github.formatIssue(issue, repoId));
             }
         }
-        issueService.onIssuesLoaded(repoId, items, token);
+        issueService.onIssuesLoaded(repoId, items, token, ownerLogin);
         return Map.of(
                 "items", items,
                 "total", items.size(),
@@ -87,6 +88,7 @@ public class IssueController {
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         String token = AuthSupport.requireToken(authorization);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         String repoId = Objects.toString(body.get("repoId"), "");
         authorizationService.requireAccess(repoId, token);
         @SuppressWarnings("unchecked")
@@ -95,7 +97,7 @@ public class IssueController {
                 : Map.of();
         boolean force = Boolean.TRUE.equals(body.get("force"))
                 || "true".equalsIgnoreCase(Objects.toString(body.get("force"), ""));
-        return issueService.analyze(repoId, issue, token, force);
+        return issueService.analyze(repoId, issue, token, force, ownerLogin);
     }
 
 }

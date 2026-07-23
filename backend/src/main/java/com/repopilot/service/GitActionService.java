@@ -36,10 +36,10 @@ public class GitActionService {
         this.authorizationService = authorizationService;
     }
 
-    public Map<String, Object> execute(String repoId, String token, String action, Map<String, String> params) {
+    public Map<String, Object> execute(String repoId, String token, String action, Map<String, String> params, String ownerLogin) {
         authorizationService.requireAccess(repoId, token);
         return switch (action) {
-            case "sync_knowledge" -> enqueueKnowledgeSync(repoId, token);
+            case "sync_knowledge" -> enqueueKnowledgeSync(repoId, token, ownerLogin);
             case "create_branch" -> createBranch(repoId, token, params);
             case "commit_file" -> commitFile(repoId, token, params);
             case "create_pr" -> createPullRequest(repoId, token, params);
@@ -47,11 +47,11 @@ public class GitActionService {
         };
     }
 
-    private Map<String, Object> enqueueKnowledgeSync(String repoId, String token) {
+    private Map<String, Object> enqueueKnowledgeSync(String repoId, String token, String ownerLogin) {
         String taskId = taskService.create(repoId, "incremental");
         knowledgeBuildExecutor.execute(() -> {
             try {
-                knowledgeService.buildKnowledge(repoId, token, false, 30, null, taskId);
+                knowledgeService.buildKnowledge(repoId, ownerLogin, token, false, 30, null, taskId);
             } catch (Exception ignored) {
                 // KnowledgeService records task failure details.
             }
@@ -59,7 +59,7 @@ public class GitActionService {
         return Map.of("taskId", taskId, "repoId", repoId, "status", "queued", "async", true);
     }
 
-    public Map<String, Object> executeNl(String repoId, String token, String command) {
+    public Map<String, Object> executeNl(String repoId, String token, String command, String ownerLogin) {
         ParsedCommand parsed = parseNl(command);
         if ("unknown".equals(parsed.action())) {
             return Map.of(
@@ -68,7 +68,7 @@ public class GitActionService {
             );
         }
         try {
-            Map<String, Object> result = execute(repoId, token, parsed.action(), parsed.params());
+            Map<String, Object> result = execute(repoId, token, parsed.action(), parsed.params(), ownerLogin);
             String message = switch (parsed.action()) {
                 case "sync_knowledge" -> "知识库同步任务已提交";
                 case "create_branch" -> "分支 " + parsed.params().getOrDefault("branch", "") + " 已创建";

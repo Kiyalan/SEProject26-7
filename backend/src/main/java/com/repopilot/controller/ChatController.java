@@ -35,6 +35,7 @@ public class ChatController {
         String token = AuthSupport.requireToken(authorization);
         String repoId = Objects.toString(body.get("repoId"), "");
         authorizationService.requireAccess(repoId, token);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         String message = Objects.toString(body.get("message"), "").trim();
         if (message.isBlank()) {
             throw new IllegalArgumentException("message 不能为空");
@@ -42,7 +43,7 @@ public class ChatController {
         if (message.length() > 2000) {
             throw new IllegalArgumentException("message 最长 2000 字符");
         }
-        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message);
+        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message, ownerLogin);
         return llmService.chat(repoId, message, query.contexts(), query.intent());
     }
 
@@ -54,6 +55,7 @@ public class ChatController {
         String token = AuthSupport.requireToken(authorization);
         String repoId = Objects.toString(body.get("repoId"), "");
         authorizationService.requireAccess(repoId, token);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         String message = Objects.toString(body.get("message"), "").trim();
         if (message.isBlank()) {
             throw new IllegalArgumentException("message 不能为空");
@@ -61,7 +63,7 @@ public class ChatController {
         if (message.length() > 2000) {
             throw new IllegalArgumentException("message 最长 2000 字符");
         }
-        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message);
+        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message, ownerLogin);
         String questionType = KnowledgeUtils.classifyQuestion(message);
         return llmService.streamChat(repoId, message, questionType, query.intent(), query.contexts());
     }

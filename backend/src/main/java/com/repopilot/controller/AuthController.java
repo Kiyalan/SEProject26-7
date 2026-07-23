@@ -3,7 +3,7 @@ package com.repopilot.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.repopilot.config.AppProperties;
 import com.repopilot.client.GitHubClient;
-import com.repopilot.security.AuthSupport;
+import com.repopilot.security.JwtUtil;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -24,13 +24,15 @@ public class AuthController {
 
     private final AppProperties properties;
     private final GitHubClient github;
+    private final JwtUtil jwtUtil;
     private final RestClient oauthClient = RestClient.builder().build();
     private final Set<String> oauthStates = ConcurrentHashMap.newKeySet();
     private final SecureRandom random = new SecureRandom();
 
-    public AuthController(AppProperties properties, GitHubClient github) {
+    public AuthController(AppProperties properties, GitHubClient github, JwtUtil jwtUtil) {
         this.properties = properties;
         this.github = github;
+        this.jwtUtil = jwtUtil;
     }
 
     @GetMapping("/auth/github")
@@ -86,7 +88,11 @@ public class AuthController {
 
         JsonNode user = github.get("/user", accessToken);
         String username = user.path("login").asText("");
-        return new RedirectView(frontend + "/oauth/success?access_token=" + encode(accessToken) + "&username=" + encode(username));
+
+        // 签发 JWT（内含 username + github_token），不再裸传 GitHub token
+        String jwt = jwtUtil.createToken(username, accessToken);
+
+        return new RedirectView(frontend + "/oauth/success?access_token=" + encode(jwt) + "&username=" + encode(username));
     }
 
     private void requireConfig() {

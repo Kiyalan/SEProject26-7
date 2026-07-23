@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.repopilot.client.GitHubClient;
 import com.repopilot.entity.RepoIndex;
 import com.repopilot.repository.RepoIndexRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -13,12 +14,14 @@ public class PortfolioService {
 
     private final GitHubClient github;
     private final RepoIndexRepository repoIndexRepository;
+    private final JdbcTemplate jdbc;
 
-    public PortfolioService(GitHubClient github, RepoIndexRepository repoIndexRepository) {
+    public PortfolioService(GitHubClient github, RepoIndexRepository repoIndexRepository, JdbcTemplate jdbc) {
         this.github = github;
         this.repoIndexRepository = repoIndexRepository;
+        this.jdbc = jdbc;
     }
-    public Map<String, Object> overview(String token, int maxRepos) {
+    public Map<String, Object> overview(String token, String ownerLogin, int maxRepos) {
         JsonNode repos = github.get("/user/repos", token, Map.of(
                 "visibility", "all",
                 "affiliation", "owner,collaborator,organization_member",
@@ -30,7 +33,7 @@ public class PortfolioService {
             throw new IllegalStateException("GitHub 返回格式异常");
         }
 
-        Map<String, Map<String, Object>> local = localIndexMap();
+        Map<String, Map<String, Object>> local = localIndexMap(ownerLogin);
         List<Map<String, Object>> items = new ArrayList<>();
         Map<String, Integer> langCounter = new HashMap<>();
         int totalStars = 0;
@@ -138,9 +141,23 @@ public class PortfolioService {
         );
     }
 
-    private Map<String, Map<String, Object>> localIndexMap() {
+    private Map<String, Map<String, Object>> localIndexMap(String ownerLogin) {
         Map<String, Map<String, Object>> result = new HashMap<>();
-        for (RepoIndex row : repoIndexRepository.findAll()) {
+        List<RepoIndex> rows = jdbc.query(
+                "SELECT * FROM repo_index WHERE owner_login = ?",
+                (rs, rowNum) -> {
+                    RepoIndex row = new RepoIndex();
+                    row.setRepoId(rs.getString("repo_id"));
+                    row.setOwnerLogin(rs.getString("owner_login"));
+                    row.setFullName(rs.getString("full_name"));
+                    row.setDefaultBranch(rs.getString("default_branch"));
+                    row.setIndexedAt(rs.getString("indexed_at"));
+                    row.setFileCount(rs.getInt("file_count"));
+                    row.setChunkCount(rs.getInt("chunk_count"));
+                    row.setStatus(rs.getString("status"));
+                    return row;
+                }, ownerLogin);
+        for (RepoIndex row : rows) {
             String repoId = row.getRepoId();
             boolean ready = "ready".equals(row.getStatus());
             result.put(repoId, Map.of(

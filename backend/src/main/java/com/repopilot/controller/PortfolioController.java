@@ -22,6 +22,7 @@ public class PortfolioController {
             @RequestParam(name = "max_repos", defaultValue = "50") int maxRepos
     ) {
         String token = AuthSupport.requireToken(authorization);
-        return portfolioService.overview(token, maxRepos);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
+        return portfolioService.overview(token, ownerLogin, maxRepos);
     }
 }

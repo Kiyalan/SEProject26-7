@@ -45,13 +45,13 @@ public class KnowledgeService {
         this.mapper = mapper;
     }
 
-    public Map<String, Object> buildKnowledge(String repoId, String token, boolean ignoredIndexEachCommit,
+    public Map<String, Object> buildKnowledge(String repoId, String ownerLogin, String token, boolean ignoredIndexEachCommit,
                                               int maxCommits, List<String> ignoredCommitShas) {
         String taskId = tasks.create(repoId, "incremental");
-        return buildKnowledge(repoId, token, false, maxCommits, null, taskId);
+        return buildKnowledge(repoId, ownerLogin, token, false, maxCommits, null, taskId);
     }
 
-    public Map<String, Object> buildKnowledge(String repoId, String token, boolean ignoredIndexEachCommit,
+    public Map<String, Object> buildKnowledge(String repoId, String ownerLogin, String token, boolean ignoredIndexEachCommit,
                                               int maxCommits, List<String> ignoredCommitShas, String taskId) {
         String progressKey = "knowledge:" + repoId;
         progress.start(progressKey, 5, "准备同步仓库");
@@ -60,12 +60,12 @@ public class KnowledgeService {
             JsonNode repo = authorization.requireAccess(repoId, token);
             String fullName = required(repo, "full_name");
             String branch = repo.path("default_branch").asText("main");
-            RepoIndex index = store.upsertIndex(repoId, fullName, branch, "indexing");
+            RepoIndex index = store.upsertIndex(repoId, fullName, branch, "indexing", ownerLogin);
             store.upsertSettings(repoId, false, maxCommits, "");
 
             tasks.progress(taskId, 1, 5, "克隆或拉取默认分支");
             progress.step(progressKey, "同步 Git 默认分支");
-            GitRepositoryService.SyncResult sync = git.sync(repoId, fullName, branch, token);
+            GitRepositoryService.SyncResult sync = git.sync(repoId, fullName, ownerLogin, token, branch);
             tasks.setCommits(taskId, sync.oldHead(), sync.head());
 
             String codeWikiId = index.getCodeWikiRepoId() == null ? "" : index.getCodeWikiRepoId();
@@ -128,7 +128,7 @@ public class KnowledgeService {
         }
     }
 
-    public Map<String, Object> getOverview(String repoId, String commitSha) {
+    public Map<String, Object> getOverview(String repoId, String ownerLogin, String commitSha) {
         RepoIndex index = store.findIndex(repoId).orElse(null);
         if (index == null) return emptyOverview(repoId);
         Map<String, Object> result = new LinkedHashMap<>();
@@ -182,7 +182,7 @@ public class KnowledgeService {
         result.put("deduplication", storageStats(repoId));
         result.put("provider", "codewiki");
         result.put("graphStatus", graphStatusView(index));
-        result.put("wikiStatus", wikiStatus(repoId, "zh"));
+        result.put("wikiStatus", wikiStatus(repoId, ownerLogin, "zh"));
         result.put("quality", Map.of("status", safe(index.getQualityStatus(), "unknown"),
                 "score", index.getQualityScore() == null ? 0 : index.getQualityScore(),
                 "report", JsonUtils.parseObject(index.getQualityReport()),
@@ -197,7 +197,7 @@ public class KnowledgeService {
 
     public List<Map<String, Object>> listIndexedCommits(String repoId) {
         try {
-            return git.history(repoId, 50).stream().map(row -> {
+            return git.history(repoId, ownerLogin(repoId), 50).stream().map(row -> {
                 String sha = String.valueOf(row.get("symbolName"));
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("commitSha", sha);
@@ -217,21 +217,21 @@ public class KnowledgeService {
         }
     }
 
-    public List<Map<String, Object>> commitHistoryContexts(String repoId, int limit) {
-        return git.history(repoId, limit);
+    public List<Map<String, Object>> commitHistoryContexts(String repoId, String ownerLogin, int limit) {
+        return git.history(repoId, ownerLogin, limit);
     }
 
-    public Map<String, Object> repositoryOverviewContext(String repoId) {
-        List<Map<String, Object>> evidence = retrieveChunks(repoId,
+    public Map<String, Object> repositoryOverviewContext(String repoId, String ownerLogin) {
+        List<Map<String, Object>> evidence = retrieveChunks(repoId, ownerLogin,
                 "repository overview architecture modules purpose README", null, 8);
         if (!evidence.isEmpty()) return evidence.getFirst();
-        Map<String, Object> overview = getOverview(repoId, null);
+        Map<String, Object> overview = getOverview(repoId, ownerLogin, null);
         return evidence("knowledge/repository-overview", "repository_overview",
                 "仓库: " + overview.getOrDefault("fullName", "") + "\n摘要: " + overview.getOrDefault("summary", ""));
     }
 
     public Map<String, Object> compareCommits(String repoId, String baseSha, String headSha) {
-        return git.compare(repoId, baseSha, headSha);
+        return git.compare(repoId, ownerLogin(repoId), baseSha, headSha);
     }
 
     public Map<String, Object> getSettings(String repoId) {
@@ -249,19 +249,19 @@ public class KnowledgeService {
         return getSettings(repoId);
     }
 
-    public List<Map<String, Object>> retrieveChunks(String repoId, String question, String ignoredCommitSha, int limit) {
+    public List<Map<String, Object>> retrieveChunks(String repoId, String ownerLogin, String question, String ignoredCommitSha, int limit) {
         RepoIndex index = requireReadyIndex(repoId);
         JsonNode response = codeWiki.retrieve(index.getCodeWikiRepoId(), question, 2);
         return evidenceRows(response, limit, "code");
     }
 
     public List<Map<String, Object>> retrieveChunksByPathHints(
-            String repoId, String question, List<String> pathHints, int limit) {
-        return retrieveChunks(repoId, question + "\nRelevant paths: " + String.join(", ", pathHints), null, limit);
+            String repoId, String ownerLogin, String question, List<String> pathHints, int limit) {
+        return retrieveChunks(repoId, ownerLogin, question + "\nRelevant paths: " + String.join(", ", pathHints), null, limit);
     }
 
-    public List<Map<String, Object>> apiSpecificationContexts(String repoId, int limit) {
-        return retrieveChunks(repoId, "API endpoints controllers routes OpenAPI Swagger request response", null, limit)
+    public List<Map<String, Object>> apiSpecificationContexts(String repoId, String ownerLogin, int limit) {
+        return retrieveChunks(repoId, ownerLogin, "API endpoints controllers routes OpenAPI Swagger request response", null, limit)
                 .stream().map(row -> {
                     Map<String, Object> copy = new LinkedHashMap<>(row);
                     copy.put("sourceType", "api_spec");
@@ -288,7 +288,7 @@ public class KnowledgeService {
                         "nodeCount", 0, "edgeCount", 0, "communityCount", 0, "chunkCount", 0));
     }
 
-    public Map<String, Object> graphSearch(String repoId, JsonNode parameters) {
+    public Map<String, Object> graphSearch(String repoId, String ownerLogin, JsonNode parameters) {
         JsonNode response = codeWiki.graphSearch(codeWikiId(repoId), parameters);
         List<Map<String, Object>> items = new ArrayList<>();
         response.path("results").forEach(hit -> items.add(graphNode(hit.path("node"), hit.path("score").asDouble(0))));
@@ -299,15 +299,15 @@ public class KnowledgeService {
         );
     }
 
-    public Map<String, Object> callers(String repoId, JsonNode parameters) {
+    public Map<String, Object> callers(String repoId, String ownerLogin, JsonNode parameters) {
         return relationshipTraversal(codeWiki.callers(codeWikiId(repoId), parameters));
     }
 
-    public Map<String, Object> callees(String repoId, JsonNode parameters) {
+    public Map<String, Object> callees(String repoId, String ownerLogin, JsonNode parameters) {
         return relationshipTraversal(codeWiki.callees(codeWikiId(repoId), parameters));
     }
 
-    public Map<String, Object> impact(String repoId, JsonNode parameters) {
+    public Map<String, Object> impact(String repoId, String ownerLogin, JsonNode parameters) {
         JsonNode response = codeWiki.impact(codeWikiId(repoId), parameters);
         List<Map<String, Object>> nodes = new ArrayList<>();
         List<Map<String, Object>> edges = new ArrayList<>();
@@ -316,7 +316,7 @@ public class KnowledgeService {
         return Map.of("nodes", nodes, "edges", edges, "truncated", false);
     }
 
-    public Map<String, Object> explore(String repoId, JsonNode body) {
+    public Map<String, Object> explore(String repoId, String ownerLogin, JsonNode body) {
         Map<String, Object> request = Map.of(
                 "query", body.path("query").asText("repository overview"),
                 "max_files", bounded(body.path("maxFiles").asInt(12), 1, 100),
@@ -335,7 +335,7 @@ public class KnowledgeService {
         return result;
     }
 
-    public Map<String, Object> affected(String repoId, JsonNode body) {
+    public Map<String, Object> affected(String repoId, String ownerLogin, JsonNode body) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("file_paths", jsonValue(body.path("filePaths")));
         request.put("depth", bounded(body.path("depth").asInt(5), 1, 10));
@@ -352,12 +352,12 @@ public class KnowledgeService {
         return result;
     }
 
-    public JsonNode generateWiki(String repoId, JsonNode body) { return codeWiki.generateWiki(codeWikiId(repoId), body); }
+    public JsonNode generateWiki(String repoId, String ownerLogin, JsonNode body) { return codeWiki.generateWiki(codeWikiId(repoId), body); }
 
     public void setWikiError(String repoId, String error) { wikiErrors.put(repoId, error); }
     public void clearWikiError(String repoId) { wikiErrors.remove(repoId); }
     public String getWikiError(String repoId) { return wikiErrors.getOrDefault(repoId, ""); }
-    public Map<String, Object> readWiki(String repoId, String language) {
+    public Map<String, Object> readWiki(String repoId, String ownerLogin, String language) {
         JsonNode response = codeWiki.readWiki(codeWikiId(repoId), language);
         List<Map<String, Object>> pages = new ArrayList<>();
         int order = 0;
@@ -474,11 +474,11 @@ public class KnowledgeService {
         );
     }
 
-    private String wikiStatus(String repoId, String language) {
+    private String wikiStatus(String repoId, String ownerLogin, String language) {
         try {
             String error = getWikiError(repoId);
             if (!error.isBlank()) return "failed";
-            Map<String, Object> wiki = readWiki(repoId, language);
+            Map<String, Object> wiki = readWiki(repoId, ownerLogin, language);
             Object status = wiki.get("status");
             return status == null ? "not_generated" : String.valueOf(status);
         } catch (Exception ignored) {
@@ -684,5 +684,12 @@ public class KnowledgeService {
         Throwable current = ex;
         while (current.getCause() != null) current = current.getCause();
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+    }
+
+    private String ownerLogin(String repoId) {
+        return store.findIndex(repoId)
+                .map(RepoIndex::getFullName)
+                .map(fn -> fn.contains("/") ? fn.substring(0, fn.indexOf('/')) : fn)
+                .orElse("");
     }
 }

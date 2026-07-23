@@ -38,35 +38,40 @@ public class KnowledgeGraphController {
     Map<String, Object> callers(@PathVariable String repoId, @RequestParam Map<String, String> query,
                                 @RequestHeader(value = "Authorization", required = false) String header) {
         authorize(repoId, header);
-        return knowledge.callers(repoId, mapper.valueToTree(query));
+        String ownerLogin = AuthSupport.requireUsername(header);
+        return knowledge.callers(repoId, ownerLogin, mapper.valueToTree(query));
     }
 
     @GetMapping("/callees")
     Map<String, Object> callees(@PathVariable String repoId, @RequestParam Map<String, String> query,
                                 @RequestHeader(value = "Authorization", required = false) String header) {
         authorize(repoId, header);
-        return knowledge.callees(repoId, mapper.valueToTree(query));
+        String ownerLogin = AuthSupport.requireUsername(header);
+        return knowledge.callees(repoId, ownerLogin, mapper.valueToTree(query));
     }
 
     @GetMapping("/impact")
     Map<String, Object> impact(@PathVariable String repoId, @RequestParam Map<String, String> query,
                                @RequestHeader(value = "Authorization", required = false) String header) {
         authorize(repoId, header);
-        return knowledge.impact(repoId, mapper.valueToTree(query));
+        String ownerLogin = AuthSupport.requireUsername(header);
+        return knowledge.impact(repoId, ownerLogin, mapper.valueToTree(query));
     }
 
     @PostMapping("/explore")
     Map<String, Object> explore(@PathVariable String repoId, @RequestBody Map<String, Object> body,
                                 @RequestHeader(value = "Authorization", required = false) String header) {
         authorize(repoId, header);
-        return knowledge.explore(repoId, mapper.valueToTree(body));
+        String ownerLogin = AuthSupport.requireUsername(header);
+        return knowledge.explore(repoId, ownerLogin, mapper.valueToTree(body));
     }
 
     @PostMapping("/affected")
     Map<String, Object> affected(@PathVariable String repoId, @RequestBody Map<String, Object> body,
                                  @RequestHeader(value = "Authorization", required = false) String header) {
         authorize(repoId, header);
-        return knowledge.affected(repoId, mapper.valueToTree(body));
+        String ownerLogin = AuthSupport.requireUsername(header);
+        return knowledge.affected(repoId, ownerLogin, mapper.valueToTree(body));
     }
 
     private void authorize(String repoId, String header) {

@@ -30,6 +30,9 @@ repopilot:
     client-secret: ${GITHUB_CLIENT_SECRET:}
     callback-url: ${GITHUB_CALLBACK_URL:http://localhost:5173/auth/callback}
     frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  jwt:
+    secret: ${JWT_SECRET:repopilot-jwt-secret-change-in-production}
+    expiration-hours: ${JWT_EXPIRATION_HOURS:168}
   llm:
     api-key: ${LLM_API_KEY:}
     base-url: ${LLM_BASE_URL:https://openrouter.ai/api/v1}

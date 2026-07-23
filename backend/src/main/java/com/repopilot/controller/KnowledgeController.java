@@ -59,6 +59,7 @@ public class KnowledgeController {
             @RequestBody(required = false) Map<String, Object> body
     ) {
         String token = AuthSupport.requireToken(authorization);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         authorizationService.requireAccess(repoId, token);
         String progressKey = "knowledge:" + repoId;
         if (progressService.isRunning(progressKey)) {
@@ -81,9 +82,10 @@ public class KnowledgeController {
 
         String taskId = taskService.create(repoId, "incremental");
         try {
+            String capturedOwnerLogin = ownerLogin;
             knowledgeBuildExecutor.execute(() -> {
                 try {
-                    knowledgeService.buildKnowledge(repoId, token, indexEachCommit, maxCommits, commitShas, taskId);
+                    knowledgeService.buildKnowledge(repoId, capturedOwnerLogin, token, indexEachCommit, maxCommits, commitShas, taskId);
                 } catch (Exception ex) {
                     // buildKnowledge 已持久化失败状态和错误明细。
                 }
@@ -156,6 +158,7 @@ public class KnowledgeController {
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         authorize(repoId, authorization);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         String query = String.valueOf(body.getOrDefault("query", "")).trim();
         if (query.isBlank()) {
             throw new IllegalArgumentException("query 不能为空");
@@ -165,7 +168,7 @@ public class KnowledgeController {
         return Map.of(
                 "repoId", repoId,
                 "commitSha", knowledgeService.resolveActiveCommitSha(repoId, commit),
-                "items", knowledgeService.retrieveChunks(repoId, query, commit, Math.min(Math.max(limit, 1), 50))
+                "items", knowledgeService.retrieveChunks(repoId, ownerLogin, query, commit, Math.min(Math.max(limit, 1), 50))
         );
     }
 
@@ -176,7 +179,8 @@ public class KnowledgeController {
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         authorize(repoId, authorization);
-        return knowledgeService.getOverview(repoId, commit);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
+        return knowledgeService.getOverview(repoId, ownerLogin, commit);
     }
 
     @GetMapping("/commits")
@@ -223,7 +227,8 @@ public class KnowledgeController {
     Map<String, Object> graphSearchQuery(@PathVariable String repoId, @RequestParam Map<String, String> query,
                                          @RequestHeader(value = "Authorization", required = false) String authorization) {
         authorize(repoId, authorization);
-        return knowledgeService.graphSearch(repoId, mapper.valueToTree(query));
+        String ownerLogin = AuthSupport.requireUsername(authorization);
+        return knowledgeService.graphSearch(repoId, ownerLogin, mapper.valueToTree(query));
     }
 
     @PostMapping("/wiki/generate")
@@ -233,12 +238,14 @@ public class KnowledgeController {
                                      @RequestParam(defaultValue = "en") String language,
                                      @RequestHeader(value = "Authorization", required = false) String authorization) {
         authorize(repoId, authorization);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         Map<String, Object> request = new LinkedHashMap<>(body == null ? Map.of() : body);
         request.putIfAbsent("language", language);
         try {
+            String capturedOwnerLogin = ownerLogin;
             knowledgeBuildExecutor.execute(() -> {
                 try {
-                    knowledgeService.generateWiki(repoId, mapper.valueToTree(request));
+                    knowledgeService.generateWiki(repoId, capturedOwnerLogin, mapper.valueToTree(request));
                     knowledgeService.clearWikiError(repoId);
                 } catch (Exception ex) {
                     knowledgeService.setWikiError(repoId, rootMessage(ex));
@@ -259,7 +266,8 @@ public class KnowledgeController {
                                  @RequestParam(defaultValue = "en") String language,
                                  @RequestHeader(value = "Authorization", required = false) String authorization) {
         authorize(repoId, authorization);
-        return knowledgeService.readWiki(repoId, language);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
+        return knowledgeService.readWiki(repoId, ownerLogin, language);
     }
 
     private String authorize(String repoId, String authorization) {

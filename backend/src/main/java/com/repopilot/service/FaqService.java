@@ -61,7 +61,7 @@ public class FaqService {
     }
 
     @Transactional
-    public Map<String, Object> generate(String repoId, int maxItems) {
+    public Map<String, Object> generate(String repoId, String ownerLogin, int maxItems) {
         int limit = Math.min(Math.max(maxItems, 1), 24);
         List<Map<String, Object>> generated = new ArrayList<>();
         String now = LocalDateTime.now(ZoneOffset.UTC).format(TS);
@@ -72,7 +72,7 @@ public class FaqService {
             }
             List<Map<String, Object>> evidence;
             try {
-                evidence = knowledgeService.retrieveChunks(repoId, seed.query(), null, 4);
+                evidence = knowledgeService.retrieveChunks(repoId, ownerLogin, seed.query(), null, 4);
             } catch (Exception ex) {
                 throw new IllegalStateException("知识库未就绪，请先构建 GraphRAG 后再生成 FAQ", ex);
             }

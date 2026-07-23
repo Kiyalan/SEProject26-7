@@ -14,6 +14,9 @@ public class RepoIndex {
     @Column(name = "repo_id", length = 64)
     private String repoId;
 
+    @Column(name = "owner_login")
+    private String ownerLogin;
+
     @Column(name = "full_name", nullable = false, length = 255)
     private String fullName;
 
@@ -91,6 +94,14 @@ public class RepoIndex {
 
     public void setRepoId(String repoId) {
         this.repoId = repoId;
+    }
+
+    public String getOwnerLogin() {
+        return ownerLogin;
+    }
+
+    public void setOwnerLogin(String ownerLogin) {
+        this.ownerLogin = ownerLogin;
     }
 
     public String getFullName() {

@@ -34,6 +34,7 @@ public class RepoProgressController {
                     value = "Authorization", required = false) String authorization
     ) {
         String token = AuthSupport.requireToken(authorization);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
         authorizationService.requireAccess(repoId, token);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("knowledge", progressService.snapshot("knowledge:" + repoId));
