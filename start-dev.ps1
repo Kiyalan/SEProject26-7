@@ -4,6 +4,23 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# 加载 backend\.env 中的环境变量
+$envFile = Join-Path $PSScriptRoot "backend\.env"
+if (Test-Path $envFile) {
+    Get-Content $envFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith("#")) {
+            $eq = $line.IndexOf("=")
+            if ($eq -gt 0) {
+                $key = $line.Substring(0, $eq).Trim()
+                $value = $line.Substring($eq + 1).Trim()
+                [Environment]::SetEnvironmentVariable($key, $value, "Process")
+            }
+        }
+    }
+    Write-Host "Loaded environment from backend\.env" -ForegroundColor DarkGray
+}
+
 Write-Host "Starting postgres + codewiki..." -ForegroundColor Cyan
 docker compose up -d postgres codewiki
 if ($LASTEXITCODE -ne 0) {
