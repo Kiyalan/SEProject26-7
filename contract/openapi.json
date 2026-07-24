@@ -3,7 +3,7 @@
   "info": {
     "title": "RepoPilot Frontend–Backend API",
     "description": "Contract of HTTP APIs that the frontend (`frontend/src/lib/api.ts`, `auth.ts`) calls against the backend. Derived from frontend clients and response TypeScript types.",
-    "version": "3.1.0"
+    "version": "4.2.0"
   },
   "servers": [
     {
@@ -12,19 +12,57 @@
     }
   ],
   "tags": [
-    { "name": "Auth", "description": "GitHub OAuth entry" },
-    { "name": "User", "description": "Current user profile and settings" },
-    { "name": "Repositories", "description": "Repository listing and detail" },
-    { "name": "Issues", "description": "Issues and LLM analysis" },
-    { "name": "Knowledge", "description": "Per-repo knowledge index" },
-    { "name": "Chat", "description": "Repo Q&A chat" },
-    { "name": "Portfolio", "description": "Multi-repo portfolio overview" },
-    { "name": "Actions", "description": "Git / NL quick actions" }
+    {
+      "name": "Auth",
+      "description": "GitHub OAuth entry"
+    },
+    {
+      "name": "User",
+      "description": "Current user profile and settings"
+    },
+    {
+      "name": "Repositories",
+      "description": "Repository listing and detail"
+    },
+    {
+      "name": "Issues",
+      "description": "Issues and LLM analysis"
+    },
+    {
+      "name": "Knowledge",
+      "description": "Per-repo knowledge index"
+    },
+    {
+      "name": "FAQ",
+      "description": "Lightweight FAQ clustering from GraphRAG evidence"
+    },
+    {
+      "name": "Chat",
+      "description": "Repo Q&A chat"
+    },
+    {
+      "name": "Portfolio",
+      "description": "Multi-repo portfolio overview"
+    },
+    {
+      "name": "Actions",
+      "description": "Git / NL quick actions"
+    },
+    {
+      "name": "Notifications",
+      "description": "Email notification preferences (stub delivery)"
+    },
+    {
+      "name": "Admin",
+      "description": "Platform admin console (ops logs, FAQ export, integrity)"
+    }
   ],
   "paths": {
     "/auth/github": {
       "get": {
-        "tags": ["Auth"],
+        "tags": [
+          "Auth"
+        ],
         "summary": "Start GitHub OAuth login",
         "description": "Browser navigation (not apiFetch). Redirects to GitHub authorize, then backend completes via `/auth/callback` and returns the user to the frontend OAuth success page with token query params.",
         "operationId": "startGithubLogin",
@@ -36,62 +74,139 @@
             "description": "OAuth env (client id/secret) not configured",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
               }
             }
           }
         }
       }
     },
+    "/auth/callback": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Complete GitHub OAuth callback",
+        "description": "GitHub redirects the browser here. The backend validates state, exchanges the code, then redirects to the frontend success or error page.",
+        "operationId": "completeGithubLogin",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to frontend OAuth success or login error page"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
     "/api/user/profile": {
       "get": {
-        "tags": ["User"],
+        "tags": [
+          "User"
+        ],
         "summary": "Get current GitHub user profile",
         "operationId": "fetchUserProfile",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Authenticated user profile",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserProfile" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfile"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/user/setting/llmconfig": {
       "get": {
-        "tags": ["User"],
+        "tags": [
+          "User"
+        ],
         "summary": "Get LLM configuration",
         "operationId": "fetchLlmConfig",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Current LLM baseUrl, apiKey, and model",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/LlmConfig" }
+                "schema": {
+                  "$ref": "#/components/schemas/LlmConfig"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/user/setting/llmconfig/set": {
       "post": {
-        "tags": ["User"],
+        "tags": [
+          "User"
+        ],
         "summary": "Save LLM configuration",
         "operationId": "setLlmConfig",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/LlmConfig" }
+              "schema": {
+                "$ref": "#/components/schemas/LlmConfig"
+              }
             }
           }
         },
@@ -100,69 +215,113 @@
             "description": "Saved LLM configuration",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/LlmConfig" }
+                "schema": {
+                  "$ref": "#/components/schemas/LlmConfig"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/repos": {
       "get": {
-        "tags": ["Repositories"],
+        "tags": [
+          "Repositories"
+        ],
         "summary": "List repositories for the authenticated user",
         "operationId": "fetchRepoList",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Repository list",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/RepositoryListResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryListResponse"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "500": { "$ref": "#/components/responses/ServerError" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
         }
       }
     },
     "/api/repos/{repoId}": {
       "get": {
-        "tags": ["Repositories"],
+        "tags": [
+          "Repositories"
+        ],
         "summary": "Get a single repository",
         "operationId": "fetchRepoSingle",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Repository detail",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Repository" }
+                "schema": {
+                  "$ref": "#/components/schemas/Repository"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/api/repos/{repoId}/issues": {
       "get": {
-        "tags": ["Issues"],
+        "tags": [
+          "Issues"
+        ],
         "summary": "List issues in a repository",
         "operationId": "fetchRepositoryIssues",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/RepoId" },
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
           {
             "name": "state",
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["open", "closed", "all"],
+              "enum": [
+                "open",
+                "closed",
+                "all"
+              ],
               "default": "all"
             }
           }
@@ -172,29 +331,48 @@
             "description": "Issue list (PRs excluded)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/IssueListResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/IssueListResponse"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" },
-          "500": { "$ref": "#/components/responses/ServerError" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
         }
       }
     },
     "/api/repos/{repoId}/issues/{issueNumber}": {
       "get": {
-        "tags": ["Issues"],
+        "tags": [
+          "Issues"
+        ],
         "summary": "Get a single issue",
         "operationId": "fetchRepositoryIssue",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/RepoId" },
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
           {
             "name": "issueNumber",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer", "minimum": 1 }
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
           }
         ],
         "responses": {
@@ -202,7 +380,9 @@
             "description": "Issue detail",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/GithubIssue" }
+                "schema": {
+                  "$ref": "#/components/schemas/GithubIssue"
+                }
               }
             }
           },
@@ -210,26 +390,40 @@
             "description": "Number refers to a Pull Request, not an Issue",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/api/issues/analyze": {
       "post": {
-        "tags": ["Issues"],
+        "tags": [
+          "Issues"
+        ],
         "summary": "Analyze an issue with LLM / heuristics",
         "operationId": "analyzeIssue",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/IssueAnalyzeRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/IssueAnalyzeRequest"
+              }
             }
           }
         },
@@ -238,77 +432,124 @@
             "description": "Analysis result",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/IssueAnalysis" }
+                "schema": {
+                  "$ref": "#/components/schemas/IssueAnalysis"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/repos/{repoId}/knowledge/policy": {
       "get": {
-        "tags": ["Knowledge"],
+        "tags": [
+          "Knowledge"
+        ],
         "summary": "Get knowledge-indexing policy",
         "operationId": "fetchKnowledgePolicy",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Indexing policy and limits",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/KnowledgePolicy" }
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePolicy"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/repos/{repoId}/knowledge/build": {
       "post": {
-        "tags": ["Knowledge"],
+        "tags": [
+          "Knowledge"
+        ],
         "summary": "Build / rebuild knowledge index for a repo",
         "operationId": "buildKnowledge",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
         "requestBody": {
           "required": false,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/KnowledgeBuildRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeBuildRequest"
+              }
             }
           }
         },
         "responses": {
-          "200": {
-            "description": "Build result",
+          "202": {
+            "description": "Build task accepted",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/KnowledgeBuildResult" }
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeBuildResult"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "500": { "$ref": "#/components/responses/ServerError" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
         }
       }
     },
     "/api/repos/{repoId}/knowledge": {
       "get": {
-        "tags": ["Knowledge"],
+        "tags": [
+          "Knowledge"
+        ],
         "summary": "Get knowledge overview for a repo",
         "operationId": "fetchKnowledge",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/RepoId" },
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
           {
             "name": "commit",
             "in": "query",
             "required": false,
-            "schema": { "type": "string" },
-            "description": "Optional commit SHA to view a specific indexed snapshot"
+            "schema": {
+              "type": "string"
+            },
+            "deprecated": true,
+            "description": "Deprecated compatibility parameter. CodeWiki GraphRAG represents current HEAD; historical commits remain available through JGit history and compare APIs."
           }
         ],
         "responses": {
@@ -316,56 +557,88 @@
             "description": "Knowledge overview",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/KnowledgeOverview" }
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeOverview"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "500": { "$ref": "#/components/responses/ServerError" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
         }
       }
     },
     "/api/repos/{repoId}/knowledge/commits": {
       "get": {
-        "tags": ["Knowledge"],
-        "summary": "List indexed commits",
-        "description": "Exported in frontend `api.ts` (`fetchKnowledgeCommits`); may not be used by current UI pages.",
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "List Git commit history for the indexed repository",
+        "description": "Returns JGit history from the local repository mirror. Only current HEAD has a CodeWiki GraphRAG index.",
         "operationId": "fetchKnowledgeCommits",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Indexed commit list",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/IndexedCommitListResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/IndexedCommitListResponse"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/repos/{repoId}/knowledge/compare": {
       "get": {
-        "tags": ["Knowledge"],
+        "tags": [
+          "Knowledge"
+        ],
         "summary": "Compare two indexed commits",
         "operationId": "compareKnowledgeCommits",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/RepoId" },
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
           {
             "name": "base",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "description": "Base commit SHA"
           },
           {
             "name": "head",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "description": "Head commit SHA"
           }
         ],
@@ -374,26 +647,42 @@
             "description": "Compare result",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CommitCompareResult" }
+                "schema": {
+                  "$ref": "#/components/schemas/CommitCompareResult"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/repos/{repoId}/knowledge/settings": {
       "put": {
-        "tags": ["Knowledge"],
+        "tags": [
+          "Knowledge"
+        ],
         "summary": "Update knowledge index settings",
         "operationId": "updateKnowledgeSettings",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/KnowledgeSettingsRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeSettingsRequest"
+              }
             }
           }
         },
@@ -402,25 +691,708 @@
             "description": "Updated settings",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/KnowledgeSettings" }
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSettings"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/progress": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Get live and persisted repository job progress",
+        "operationId": "fetchRepoProgress",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current progress snapshots",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoProgressResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/tasks": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "List persisted knowledge build tasks",
+        "operationId": "fetchKnowledgeBuildTasks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Build task history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/KnowledgeBuildTask"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/tasks/{taskId}": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Get a persisted knowledge build task",
+        "operationId": "fetchKnowledgeBuildTask",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "$ref": "#/components/parameters/TaskId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Build task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeBuildTask"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/tasks/{taskId}/errors": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "List detailed errors and warnings for a build task",
+        "operationId": "fetchKnowledgeBuildErrors",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "$ref": "#/components/parameters/TaskId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Build errors",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/KnowledgeBuildError"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/quality": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Get the latest persisted index quality state",
+        "operationId": "fetchKnowledgeQuality",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index quality",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeQuality"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/search": {
+      "post": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Search indexed chunks with vector or keyword retrieval",
+        "operationId": "searchKnowledge",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeSearchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ranked knowledge chunks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/graph/status": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Get CodeWiki GraphRAG index status",
+        "operationId": "fetchKnowledgeGraphStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GraphRAG index status and entity counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGraphStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/graph/search": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Search the CodeWiki knowledge graph",
+        "operationId": "searchKnowledgeGraph",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "$ref": "#/components/parameters/GraphQuery"
+          },
+          {
+            "$ref": "#/components/parameters/GraphNodeType"
+          },
+          {
+            "$ref": "#/components/parameters/GraphLanguage"
+          },
+          {
+            "$ref": "#/components/parameters/GraphPath"
+          },
+          {
+            "$ref": "#/components/parameters/GraphLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranked graph entities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGraphSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/graph/callers": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Get callers of a graph symbol",
+        "operationId": "fetchKnowledgeGraphCallers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "$ref": "#/components/parameters/GraphSymbol"
+          },
+          {
+            "$ref": "#/components/parameters/GraphDepth"
+          },
+          {
+            "$ref": "#/components/parameters/GraphLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Incoming call relationships",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGraphTraversalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/graph/callees": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Get callees of a graph symbol",
+        "operationId": "fetchKnowledgeGraphCallees",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "$ref": "#/components/parameters/GraphSymbol"
+          },
+          {
+            "$ref": "#/components/parameters/GraphDepth"
+          },
+          {
+            "$ref": "#/components/parameters/GraphLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Outgoing call relationships",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGraphTraversalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/graph/impact": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Analyze the impact radius of a graph symbol",
+        "operationId": "fetchKnowledgeGraphImpact",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "$ref": "#/components/parameters/GraphSymbol"
+          },
+          {
+            "$ref": "#/components/parameters/GraphDepth"
+          },
+          {
+            "$ref": "#/components/parameters/GraphLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transitive impact relationships",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGraphTraversalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/graph/explore": {
+      "post": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Explore a bounded graph neighborhood",
+        "operationId": "exploreKnowledgeGraph",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeGraphExploreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bounded graph neighborhood",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGraphExploreResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/graph/affected": {
+      "post": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Find graph entities affected by changed files",
+        "operationId": "fetchKnowledgeGraphAffected",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeGraphAffectedRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Entities affected by the requested file changes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGraphAffectedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/wiki/generate": {
+      "post": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Generate or regenerate the CodeWiki wiki on demand",
+        "operationId": "generateKnowledgeWiki",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "$ref": "#/components/parameters/WikiLanguage"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Wiki generation accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeWikiGeneration"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/knowledge/wiki": {
+      "get": {
+        "tags": [
+          "Knowledge"
+        ],
+        "summary": "Get a generated CodeWiki wiki",
+        "operationId": "fetchKnowledgeWiki",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "$ref": "#/components/parameters/WikiLanguage"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Generated wiki pages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeWiki"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/api/chat": {
       "post": {
-        "tags": ["Chat"],
+        "tags": [
+          "Chat"
+        ],
         "summary": "Ask a question about a repository",
         "operationId": "sendChatMessage",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ChatRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
             }
           }
         },
@@ -429,47 +1401,75 @@
             "description": "Chat answer with citations",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ChatResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/portfolio/overview": {
       "get": {
-        "tags": ["Portfolio"],
+        "tags": [
+          "Portfolio"
+        ],
         "summary": "Multi-repo portfolio overview",
         "operationId": "fetchPortfolioOverview",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Portfolio summary",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/PortfolioOverview" }
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioOverview"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "500": { "$ref": "#/components/responses/ServerError" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
         }
       }
     },
     "/api/repos/{repoId}/actions": {
       "post": {
-        "tags": ["Actions"],
+        "tags": [
+          "Actions"
+        ],
         "summary": "Execute a structured git action",
         "description": "Frontend usages: `create_branch` ({branch}), `commit_file` ({path, content, message}), `create_pr` ({title, body, head}). Backend also supports `sync_knowledge`.",
         "operationId": "executeGitAction",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/GitActionRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/GitActionRequest"
+              }
             }
           }
         },
@@ -489,26 +1489,42 @@
             "description": "Unknown action or missing params",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/repos/{repoId}/actions/nl": {
       "post": {
-        "tags": ["Actions"],
+        "tags": [
+          "Actions"
+        ],
         "summary": "Execute a natural-language git command",
         "operationId": "executeNlCommand",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/RepoId" }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/NlCommandRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/NlCommandRequest"
+              }
             }
           }
         },
@@ -517,11 +1533,576 @@
             "description": "Parsed action result (failures may still return HTTP 200 with success=false)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/NlCommandResult" }
+                "schema": {
+                  "$ref": "#/components/schemas/NlCommandResult"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/faq": {
+      "get": {
+        "tags": [
+          "FAQ"
+        ],
+        "summary": "List generated FAQ items for a repository",
+        "operationId": "fetchRepoFaq",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FAQ list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaqListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/faq/generate": {
+      "post": {
+        "tags": [
+          "FAQ"
+        ],
+        "summary": "Generate or refresh FAQ clusters from GraphRAG evidence",
+        "operationId": "generateRepoFaq",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FaqGenerateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generated FAQ list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaqListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/repos/{repoId}/faq/export": {
+      "get": {
+        "tags": [
+          "FAQ"
+        ],
+        "summary": "Export FAQ as markdown or JSON",
+        "operationId": "exportRepoFaq",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RepoId"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "markdown",
+                "json"
+              ],
+              "default": "markdown"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Exported FAQ document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaqExportResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/user/setting/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Get email notification preferences",
+        "operationId": "fetchNotificationSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification preferences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Update email notification preferences",
+        "operationId": "updateNotificationSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated preferences",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/user/setting/notifications/test": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send a stub test notification email (no real delivery)",
+        "operationId": "sendTestNotification",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stub send result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationTestResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/login": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Admin login",
+        "operationId": "adminLogin",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminLoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Admin session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminLoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/overview": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Admin dashboard overview",
+        "operationId": "fetchAdminOverview",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Overview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminOverview"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/sync-tasks": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List knowledge sync/build tasks across repos",
+        "operationId": "fetchAdminSyncTasks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "all"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sync tasks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSyncTaskList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/sync-failures": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List failed sync/build tasks",
+        "operationId": "fetchAdminSyncFailures",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Failures",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSyncFailureList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/integrity": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Per-repo knowledge/FAQ integrity snapshot",
+        "operationId": "fetchAdminIntegrity",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Integrity checks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminIntegrityList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/faq/repos": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List repos with FAQ counts for export",
+        "operationId": "fetchAdminFaqRepos",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FAQ repo options",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminFaqRepoList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/faq/export": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Batch export FAQ for selected repos",
+        "operationId": "exportAdminFaq",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminFaqExportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Exported document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminFaqExportResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/audit-logs": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List admin audit logs",
+        "operationId": "fetchAdminAuditLogs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit logs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAuditLogList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List community users (may be empty)",
+        "operationId": "fetchAdminUsers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Users",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     }
@@ -540,16 +2121,142 @@
         "name": "repoId",
         "in": "path",
         "required": true,
-        "schema": { "type": "string" },
+        "schema": {
+          "type": "string"
+        },
         "description": "GitHub repository numeric id (string in frontend paths)"
+      },
+      "TaskId": {
+        "name": "taskId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Persisted knowledge build task id"
+      },
+      "GraphQuery": {
+        "name": "q",
+        "in": "query",
+        "required": true,
+        "description": "Text, qualified symbol name, or code fragment to search",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "GraphNodeType": {
+        "name": "type",
+        "in": "query",
+        "required": false,
+        "description": "Restrict results to one graph entity type",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "repository",
+            "module",
+            "file",
+            "class",
+            "interface",
+            "function",
+            "method",
+            "variable",
+            "community",
+            "chunk"
+          ]
+        }
+      },
+      "GraphLanguage": {
+        "name": "language",
+        "in": "query",
+        "required": false,
+        "description": "Case-insensitive programming-language filter",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_+#. -]+$"
+        }
+      },
+      "GraphPath": {
+        "name": "path",
+        "in": "query",
+        "required": false,
+        "description": "Repository-relative path prefix",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      },
+      "GraphSymbol": {
+        "name": "symbol",
+        "in": "query",
+        "required": true,
+        "description": "Stable graph node id or qualified symbol name",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "GraphDepth": {
+        "name": "depth",
+        "in": "query",
+        "required": false,
+        "description": "Maximum traversal depth",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 1
+        }
+      },
+      "GraphLimit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Maximum number of returned nodes",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 20
+        }
+      },
+      "WikiLanguage": {
+        "name": "language",
+        "in": "query",
+        "required": false,
+        "description": "BCP 47 language tag; defaults to repository or server preference",
+        "schema": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 35,
+          "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$"
+        }
       }
     },
     "responses": {
+      "BadRequest": {
+        "description": "Invalid request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            }
+          }
+        }
+      },
       "Unauthorized": {
         "description": "Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+            "schema": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            }
           }
         }
       },
@@ -557,7 +2264,9 @@
         "description": "Resource not found",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+            "schema": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            }
           }
         }
       },
@@ -565,7 +2274,9 @@
         "description": "Internal server error",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+            "schema": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            }
           }
         }
       }
@@ -576,38 +2287,69 @@
         "properties": {
           "detail": {
             "oneOf": [
-              { "type": "string" },
+              {
+                "type": "string"
+              },
               {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "msg": { "type": "string" }
+                    "msg": {
+                      "type": "string"
+                    }
                   },
                   "additionalProperties": true
                 }
               },
-              { "type": "object", "additionalProperties": true }
+              {
+                "type": "object",
+                "additionalProperties": true
+              }
             ]
           }
         }
       },
       "UserProfile": {
         "type": "object",
-        "required": ["login", "name", "avatarUrl"],
+        "required": [
+          "login",
+          "name",
+          "avatarUrl"
+        ],
         "properties": {
-          "login": { "type": "string" },
-          "name": { "type": ["string", "null"] },
-          "avatarUrl": { "type": "string", "format": "uri" }
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatarUrl": {
+            "type": "string",
+            "format": "uri"
+          }
         }
       },
       "LlmConfig": {
         "type": "object",
-        "required": ["baseUrl", "apiKey", "model"],
+        "required": [
+          "baseUrl",
+          "apiKey",
+          "model"
+        ],
         "properties": {
-          "baseUrl": { "type": "string" },
-          "apiKey": { "type": "string" },
-          "model": { "type": "string" }
+          "baseUrl": {
+            "type": "string"
+          },
+          "apiKey": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
         }
       },
       "Repository": {
@@ -624,30 +2366,61 @@
           "syncStatus"
         ],
         "properties": {
-          "id": { "type": "string" },
-          "name": { "type": "string" },
-          "fullName": { "type": "string" },
-          "description": { "type": "string" },
-          "stars": { "type": "integer" },
-          "openIssues": { "type": "integer" },
-          "language": { "type": "string" },
-          "lastSync": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "stars": {
+            "type": "integer"
+          },
+          "openIssues": {
+            "type": "integer"
+          },
+          "language": {
+            "type": "string"
+          },
+          "lastSync": {
+            "type": "string"
+          },
           "syncStatus": {
             "type": "string",
-            "enum": ["synced", "syncing", "error"]
+            "enum": [
+              "synced",
+              "syncing",
+              "error"
+            ]
           },
-          "htmlUrl": { "type": "string", "format": "uri" },
-          "private": { "type": "boolean" },
-          "defaultBranch": { "type": "string" }
+          "htmlUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "defaultBranch": {
+            "type": "string"
+          }
         }
       },
       "RepositoryListResponse": {
         "type": "object",
-        "required": ["items"],
+        "required": [
+          "items"
+        ],
         "properties": {
           "items": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/Repository" }
+            "items": {
+              "$ref": "#/components/schemas/Repository"
+            }
           }
         }
       },
@@ -665,51 +2438,110 @@
           "htmlUrl"
         ],
         "properties": {
-          "id": { "type": "string" },
-          "repoId": { "type": "string" },
-          "number": { "type": "integer" },
-          "title": { "type": "string" },
-          "body": { "type": "string" },
-          "state": { "type": "string" },
-          "author": { "type": "string" },
-          "createdAt": { "type": "string" },
-          "updatedAt": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
+          "repoId": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
           "labels": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
-          "htmlUrl": { "type": "string", "format": "uri" },
-          "comments": { "type": "integer" }
+          "htmlUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "comments": {
+            "type": "integer"
+          }
         }
       },
       "IssueListResponse": {
         "type": "object",
-        "required": ["items", "total", "repoFullName", "openIssuesCount", "state"],
+        "required": [
+          "items",
+          "total",
+          "repoFullName",
+          "openIssuesCount",
+          "state"
+        ],
         "properties": {
           "items": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/GithubIssue" }
+            "items": {
+              "$ref": "#/components/schemas/GithubIssue"
+            }
           },
-          "total": { "type": "integer" },
-          "repoFullName": { "type": "string" },
-          "openIssuesCount": { "type": "integer" },
-          "state": { "type": "string" }
+          "total": {
+            "type": "integer"
+          },
+          "repoFullName": {
+            "type": "string"
+          },
+          "openIssuesCount": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
         }
       },
       "IssueAnalyzeRequest": {
         "type": "object",
-        "required": ["repoId", "issue"],
+        "required": [
+          "repoId",
+          "issue"
+        ],
         "properties": {
-          "repoId": { "type": "string" },
-          "issue": { "$ref": "#/components/schemas/GithubIssue" }
+          "repoId": {
+            "type": "string"
+          },
+          "issue": {
+            "$ref": "#/components/schemas/GithubIssue"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, ignore cached analysis and re-run classification + GraphRAG retrieval"
+          }
         }
       },
       "FileCitation": {
         "type": "object",
-        "required": ["file"],
+        "required": [
+          "file"
+        ],
         "properties": {
-          "file": { "type": "string" },
-          "line": { "type": "integer" }
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer"
+          }
         }
       },
       "IssueAnalysis": {
@@ -730,10 +2562,18 @@
           "needsCodeChange"
         ],
         "properties": {
-          "issueId": { "type": "string" },
-          "repoId": { "type": "string" },
-          "number": { "type": "integer" },
-          "title": { "type": "string" },
+          "issueId": {
+            "type": "string"
+          },
+          "repoId": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -745,18 +2585,36 @@
               "other"
             ]
           },
-          "typeLabel": { "type": "string" },
-          "confidence": { "type": "number" },
-          "summary": { "type": "string" },
-          "suggestedReply": { "type": "string" },
-          "reason": { "type": "string" },
+          "typeLabel": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "suggestedReply": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
           "relatedFiles": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/FileCitation" }
+            "items": {
+              "$ref": "#/components/schemas/FileCitation"
+            }
           },
-          "analyzedAt": { "type": "string" },
-          "needsCodeChange": { "type": "boolean" },
-          "llmEnhanced": { "type": "boolean" }
+          "analyzedAt": {
+            "type": "string"
+          },
+          "needsCodeChange": {
+            "type": "boolean"
+          },
+          "llmEnhanced": {
+            "type": "boolean"
+          }
         }
       },
       "KnowledgePolicy": {
@@ -771,93 +2629,542 @@
           "limits"
         ],
         "properties": {
-          "required": { "type": "array", "items": { "type": "string" } },
-          "recommended": { "type": "array", "items": { "type": "string" } },
-          "excludedDirs": { "type": "array", "items": { "type": "string" } },
-          "storeOnly": { "type": "array", "items": { "type": "string" } },
-          "displayOnly": { "type": "array", "items": { "type": "string" } },
+          "required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommended": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "excludedDirs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "storeOnly": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "displayOnly": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "featureMatrix": {
             "type": "object",
             "additionalProperties": {
               "type": "object",
               "properties": {
-                "needs": { "type": "array", "items": { "type": "string" } },
-                "not_needed": { "type": "array", "items": { "type": "string" } }
+                "needs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "not_needed": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               }
             }
           },
           "limits": {
             "type": "object",
-            "additionalProperties": { "type": "number" }
+            "additionalProperties": {
+              "type": "number"
+            }
           },
-          "dataSourceTiers": { "type": "object", "additionalProperties": true },
-          "multiRepoPortfolio": { "type": "object", "additionalProperties": true }
+          "dataSourceTiers": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "multiRepoPortfolio": {
+            "type": "object",
+            "additionalProperties": true
+          }
         }
       },
       "KnowledgeBuildRequest": {
         "type": "object",
         "properties": {
-          "indexEachCommit": { "type": "boolean", "default": false },
-          "maxCommits": { "type": "integer", "default": 30 },
+          "indexEachCommit": {
+            "type": "boolean",
+            "default": false,
+            "deprecated": true,
+            "description": "Deprecated compatibility option. New builds index the current repository state."
+          },
+          "maxCommits": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 30,
+            "deprecated": true,
+            "description": "Deprecated compatibility limit for per-commit indexing."
+          },
           "commitShas": {
-            "type": ["array", "null"],
-            "items": { "type": "string" }
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
       "DeduplicationStats": {
         "type": "object",
         "properties": {
-          "indexedCommits": { "type": "integer" },
-          "uniqueFileBlobs": { "type": "integer" },
-          "uniqueChunkBlobs": { "type": "integer" },
-          "totalBlobBytes": { "type": "integer" },
-          "fileReferences": { "type": "integer" }
+          "indexedCommits": {
+            "type": "integer"
+          },
+          "uniqueFileBlobs": {
+            "type": "integer"
+          },
+          "uniqueChunkBlobs": {
+            "type": "integer"
+          },
+          "totalBlobBytes": {
+            "type": "integer"
+          },
+          "fileReferences": {
+            "type": "integer"
+          }
         }
       },
       "KnowledgeBuildResult": {
         "type": "object",
         "required": [
+          "taskId",
           "repoId",
-          "indexedCommits",
-          "commits",
-          "activeCommitSha",
-          "status"
+          "status",
+          "message",
+          "async"
         ],
         "properties": {
-          "repoId": { "type": "string" },
-          "fullName": { "type": "string" },
-          "indexedCommits": { "type": "integer" },
-          "commits": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repoId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "indexing"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "async": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "KnowledgeQuality": {
+        "type": "object",
+        "required": [
+          "status",
+          "score",
+          "report",
+          "lastTaskId"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "excellent",
+              "good",
+              "degraded",
+              "poor",
+              "failed"
+            ]
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "report": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "lastTaskId": {
+            "type": "string"
+          }
+        }
+      },
+      "KnowledgeBuildTask": {
+        "type": "object",
+        "required": [
+          "taskId",
+          "repoId",
+          "status",
+          "mode",
+          "requestedAt",
+          "progress",
+          "message",
+          "filesTotal",
+          "filesIndexed",
+          "filesReused",
+          "filesFailed",
+          "chunksTotal",
+          "qualityStatus",
+          "qualityScore",
+          "qualityReport"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repoId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "incremental",
+              "full"
+            ]
+          },
+          "requestedAt": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "type": "string"
+          },
+          "baseCommitSha": {
+            "type": "string"
+          },
+          "targetCommitSha": {
+            "type": "string"
+          },
+          "totalSteps": {
+            "type": "integer"
+          },
+          "completedSteps": {
+            "type": "integer"
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "message": {
+            "type": "string"
+          },
+          "filesTotal": {
+            "type": "integer"
+          },
+          "filesIndexed": {
+            "type": "integer"
+          },
+          "filesReused": {
+            "type": "integer"
+          },
+          "filesFailed": {
+            "type": "integer"
+          },
+          "chunksTotal": {
+            "type": "integer"
+          },
+          "embeddingsTotal": {
+            "type": "integer"
+          },
+          "embeddingsCompleted": {
+            "type": "integer"
+          },
+          "astFiles": {
+            "type": "integer"
+          },
+          "astSymbols": {
+            "type": "integer"
+          },
+          "qualityStatus": {
+            "type": "string"
+          },
+          "qualityScore": {
+            "type": "number"
+          },
+          "qualityReport": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "KnowledgeBuildError": {
+        "type": "object",
+        "required": [
+          "id",
+          "stage",
+          "filePath",
+          "errorCode",
+          "message",
+          "occurredAt",
+          "retryable"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "filePath": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProgressSnapshot": {
+        "type": "object",
+        "required": [
+          "status",
+          "progress",
+          "message",
+          "total",
+          "done"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "running",
+              "done",
+              "error"
+            ]
+          },
+          "progress": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "done": {
+            "type": "integer"
+          }
+        }
+      },
+      "RepoProgressResponse": {
+        "type": "object",
+        "required": [
+          "knowledge",
+          "issues"
+        ],
+        "properties": {
+          "knowledge": {
+            "$ref": "#/components/schemas/ProgressSnapshot"
+          },
+          "issues": {
+            "$ref": "#/components/schemas/ProgressSnapshot"
+          },
+          "latestKnowledgeTask": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KnowledgeBuildTask"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "AstSymbol": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "signature",
+          "startLine",
+          "endLine",
+          "parent",
+          "parser"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "startLine": {
+            "type": "integer"
+          },
+          "endLine": {
+            "type": "integer"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "parser": {
+            "type": "string"
+          }
+        }
+      },
+      "KnowledgeSearchRequest": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1
+          },
+          "commitSha": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 10
+          }
+        }
+      },
+      "KnowledgeSearchItem": {
+        "type": "object",
+        "required": [
+          "file",
+          "line",
+          "endLine",
+          "content",
+          "score",
+          "retrievalType"
+        ],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer"
+          },
+          "endLine": {
+            "type": "integer"
+          },
+          "symbolName": {
+            "type": "string"
+          },
+          "symbolKind": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "retrievalType": {
+            "type": "string",
+            "enum": [
+              "graph",
+              "fts",
+              "vector",
+              "community",
+              "keyword"
+            ]
+          }
+        }
+      },
+      "KnowledgeSearchResponse": {
+        "type": "object",
+        "required": [
+          "repoId",
+          "commitSha",
+          "items"
+        ],
+        "properties": {
+          "repoId": {
+            "type": "string"
+          },
+          "commitSha": {
+            "type": "string"
+          },
+          "items": {
             "type": "array",
             "items": {
-              "type": "object",
-              "required": ["commitSha", "shortSha", "message"],
-              "properties": {
-                "commitSha": { "type": "string" },
-                "shortSha": { "type": "string" },
-                "message": { "type": "string" }
-              }
+              "$ref": "#/components/schemas/KnowledgeSearchItem"
             }
-          },
-          "activeCommitSha": { "type": "string" },
-          "deduplication": { "$ref": "#/components/schemas/DeduplicationStats" },
-          "status": { "type": "string" }
+          }
         }
       },
       "KnowledgeNode": {
         "type": "object",
-        "required": ["key", "title", "type"],
+        "required": [
+          "key",
+          "title",
+          "type"
+        ],
         "properties": {
-          "key": { "type": "string" },
-          "title": { "type": "string" },
+          "key": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
           "type": {
             "type": "string",
-            "enum": ["folder", "file", "module"]
+            "enum": [
+              "folder",
+              "file",
+              "module"
+            ]
           },
           "children": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/KnowledgeNode" }
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeNode"
+            }
           }
         }
       },
@@ -875,43 +3182,98 @@
           "status"
         ],
         "properties": {
-          "commitSha": { "type": "string" },
-          "shortSha": { "type": "string" },
-          "parentSha": { "type": "string" },
-          "message": { "type": "string" },
-          "author": { "type": "string" },
-          "committedAt": { "type": "string" },
-          "indexedAt": { "type": "string" },
-          "fileCount": { "type": "integer" },
-          "chunkCount": { "type": "integer" },
-          "status": { "type": "string" }
+          "commitSha": {
+            "type": "string"
+          },
+          "shortSha": {
+            "type": "string"
+          },
+          "parentSha": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "committedAt": {
+            "type": "string"
+          },
+          "indexedAt": {
+            "type": "string"
+          },
+          "fileCount": {
+            "type": "integer"
+          },
+          "chunkCount": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
         }
       },
       "IndexedCommitListResponse": {
         "type": "object",
-        "required": ["items"],
+        "required": [
+          "items"
+        ],
         "properties": {
           "items": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/IndexedCommit" }
+            "items": {
+              "$ref": "#/components/schemas/IndexedCommit"
+            }
           }
         }
       },
       "KnowledgeSettings": {
         "type": "object",
-        "required": ["indexEachCommit", "maxCommits", "activeCommitSha"],
+        "required": [
+          "indexEachCommit",
+          "maxCommits",
+          "activeCommitSha"
+        ],
         "properties": {
-          "indexEachCommit": { "type": "boolean" },
-          "maxCommits": { "type": "integer" },
-          "activeCommitSha": { "type": "string" }
+          "indexEachCommit": {
+            "type": "boolean",
+            "deprecated": true
+          },
+          "maxCommits": {
+            "type": "integer",
+            "deprecated": true
+          },
+          "activeCommitSha": {
+            "type": "string",
+            "deprecated": true
+          }
         }
       },
       "KnowledgeSettingsRequest": {
         "type": "object",
         "properties": {
-          "indexEachCommit": { "type": ["boolean", "null"] },
-          "maxCommits": { "type": ["integer", "null"] },
-          "activeCommitSha": { "type": ["string", "null"] }
+          "indexEachCommit": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "deprecated": true
+          },
+          "maxCommits": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "deprecated": true
+          },
+          "activeCommitSha": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "deprecated": true
+          }
         }
       },
       "KnowledgeOverview": {
@@ -926,71 +3288,676 @@
           "dependencies"
         ],
         "properties": {
-          "repoId": { "type": "string" },
-          "fullName": { "type": "string" },
+          "repoId": {
+            "type": "string"
+          },
+          "fullName": {
+            "type": "string"
+          },
           "status": {
             "type": "string",
-            "enum": ["not_indexed", "indexing", "ready", "idle"]
+            "enum": [
+              "not_indexed",
+              "indexing",
+              "ready",
+              "idle"
+            ]
           },
-          "indexedAt": { "type": "string" },
-          "fileCount": { "type": "integer" },
-          "chunkCount": { "type": "integer" },
+          "indexedAt": {
+            "type": "string"
+          },
+          "fileCount": {
+            "type": "integer"
+          },
+          "chunkCount": {
+            "type": "integer"
+          },
           "tree": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/KnowledgeNode" }
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeNode"
+            }
           },
           "modules": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["name", "desc", "files", "deps"],
+              "required": [
+                "name",
+                "desc",
+                "files",
+                "deps"
+              ],
               "properties": {
-                "name": { "type": "string" },
-                "desc": { "type": "string" },
-                "files": { "type": "integer" },
-                "deps": { "type": "array", "items": { "type": "string" } }
+                "name": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                },
+                "files": {
+                  "type": "integer"
+                },
+                "deps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               }
             }
           },
           "dependencies": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
-          "summary": { "type": "string" },
+          "summary": {
+            "type": "string"
+          },
+          "moduleSummary": {
+            "type": "string"
+          },
           "languages": {
             "type": "object",
-            "additionalProperties": { "type": "number" }
+            "additionalProperties": {
+              "type": "number"
+            }
           },
-          "readmePath": { "type": "string" },
-          "readmePreview": { "type": "string" },
-          "commitSha": { "type": "string" },
-          "shortSha": { "type": "string" },
-          "topics": { "type": "array", "items": { "type": "string" } },
-          "license": { "type": "string" },
+          "readmePath": {
+            "type": "string"
+          },
+          "readmePreview": {
+            "type": "string"
+          },
+          "commitSha": {
+            "type": "string"
+          },
+          "shortSha": {
+            "type": "string"
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "license": {
+            "type": "string"
+          },
           "indexedFiles": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["path", "size", "language"],
+              "required": [
+                "path",
+                "size",
+                "language"
+              ],
               "properties": {
-                "path": { "type": "string" },
-                "size": { "type": "integer" },
-                "language": { "type": "string" }
+                "path": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "language": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "astSymbols": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AstSymbol"
+                  }
+                }
               }
             }
           },
           "commits": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/IndexedCommit" }
+            "items": {
+              "$ref": "#/components/schemas/IndexedCommit"
+            }
           },
-          "settings": { "$ref": "#/components/schemas/KnowledgeSettings" },
-          "deduplication": { "$ref": "#/components/schemas/DeduplicationStats" },
+          "settings": {
+            "$ref": "#/components/schemas/KnowledgeSettings"
+          },
+          "deduplication": {
+            "$ref": "#/components/schemas/DeduplicationStats"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/KnowledgeQuality"
+          },
+          "graphStatus": {
+            "$ref": "#/components/schemas/KnowledgeGraphStatus"
+          },
+          "wikiStatus": {
+            "type": "string",
+            "enum": [
+              "not_generated",
+              "queued",
+              "generating",
+              "ready",
+              "failed"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "const": "codewiki"
+          },
           "storageModel": {
             "type": "object",
             "properties": {
-              "displayed": { "type": "array", "items": { "type": "string" } },
-              "databaseOnly": { "type": "array", "items": { "type": "string" } },
-              "dedupStrategy": { "type": "string" }
+              "displayed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "databaseOnly": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dedupStrategy": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "KnowledgeGraphStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "provider",
+          "nodeCount",
+          "edgeCount",
+          "communityCount",
+          "chunkCount"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_indexed",
+              "queued",
+              "building",
+              "ready",
+              "failed"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "const": "codewiki"
+          },
+          "nodeCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "edgeCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "communityCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "chunkCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "indexedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "KnowledgeGraphNode": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "type"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "repository",
+              "module",
+              "file",
+              "class",
+              "interface",
+              "function",
+              "method",
+              "variable",
+              "community",
+              "chunk"
+            ]
+          },
+          "qualifiedName": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "language": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "endLine": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "communityId": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "KnowledgeGraphEdge": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "target",
+          "type"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "contains",
+              "imports",
+              "calls",
+              "inherits",
+              "implements",
+              "references",
+              "depends_on",
+              "member_of",
+              "related_to"
+            ]
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "KnowledgeGraphSearchResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query",
+          "items",
+          "total"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeGraphNode"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "KnowledgeGraphTraversalResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "nodes",
+          "edges",
+          "truncated"
+        ],
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeGraphNode"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeGraphEdge"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "KnowledgeGraphExploreRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "maxFiles": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 12
+          },
+          "maxNodes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 160
+          }
+        }
+      },
+      "KnowledgeGraphExploreResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repoId",
+          "query",
+          "entryPoints",
+          "relationships",
+          "sourceSections",
+          "additionalFiles",
+          "text",
+          "stats"
+        ],
+        "properties": {
+          "repoId": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "entryPoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "relationships": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "sourceSections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "additionalFiles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "text": {
+            "type": "string"
+          },
+          "stats": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "KnowledgeGraphAffectedRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "filePaths"
+        ],
+        "properties": {
+          "filePaths": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 5
+          },
+          "testGlob": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "KnowledgeGraphAffectedResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repoId",
+          "changedFiles",
+          "affectedFiles",
+          "affectedTests",
+          "affectedWikiPages",
+          "affectedNodeIds",
+          "traversedFileCount"
+        ],
+        "properties": {
+          "repoId": {
+            "type": "string"
+          },
+          "changedFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affectedFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affectedTests": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affectedWikiPages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affectedNodeIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "traversedFileCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "KnowledgeWikiGeneration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "language"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "generating",
+              "ready"
+            ]
+          },
+          "language": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 35
+          },
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "KnowledgeWikiPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "content",
+          "order"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 1000000
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "KnowledgeWiki": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "provider",
+          "language",
+          "pages"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_generated",
+              "queued",
+              "generating",
+              "ready",
+              "failed"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "const": "codewiki"
+          },
+          "language": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 35
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pages": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeWikiPage"
             }
           }
         }
@@ -1010,23 +3977,57 @@
           "previews"
         ],
         "properties": {
-          "baseSha": { "type": "string" },
-          "headSha": { "type": "string" },
-          "baseMessage": { "type": "string" },
-          "headMessage": { "type": "string" },
-          "added": { "type": "array", "items": { "type": "string" } },
-          "removed": { "type": "array", "items": { "type": "string" } },
-          "modified": { "type": "array", "items": { "type": "string" } },
-          "unchanged": { "type": "integer" },
-          "sharedBlobCount": { "type": "integer" },
+          "baseSha": {
+            "type": "string"
+          },
+          "headSha": {
+            "type": "string"
+          },
+          "baseMessage": {
+            "type": "string"
+          },
+          "headMessage": {
+            "type": "string"
+          },
+          "added": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "modified": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unchanged": {
+            "type": "integer"
+          },
+          "sharedBlobCount": {
+            "type": "integer"
+          },
           "previews": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["path", "diff"],
+              "required": [
+                "path",
+                "diff"
+              ],
               "properties": {
-                "path": { "type": "string" },
-                "diff": { "type": "string" }
+                "path": {
+                  "type": "string"
+                },
+                "diff": {
+                  "type": "string"
+                }
               }
             }
           }
@@ -1034,26 +4035,53 @@
       },
       "ChatRequest": {
         "type": "object",
-        "required": ["repoId", "message"],
+        "required": [
+          "repoId",
+          "message"
+        ],
         "properties": {
-          "repoId": { "type": "string" },
-          "message": { "type": "string" }
+          "repoId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
         }
       },
       "ChatResponse": {
         "type": "object",
-        "required": ["answer", "questionType", "citations", "llmEnabled"],
+        "required": [
+          "answer",
+          "questionType",
+          "citations",
+          "llmEnabled",
+          "intent"
+        ],
         "properties": {
-          "answer": { "type": "string" },
+          "answer": {
+            "type": "string"
+          },
           "questionType": {
             "type": "string",
-            "enum": ["what", "where", "how"]
+            "enum": [
+              "what",
+              "where",
+              "how"
+            ]
           },
           "citations": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/FileCitation" }
+            "items": {
+              "$ref": "#/components/schemas/FileCitation"
+            }
           },
-          "llmEnabled": { "type": "boolean" }
+          "llmEnabled": {
+            "type": "boolean"
+          },
+          "intent": {
+            "type": "string",
+            "description": "Detected knowledge sources, e.g. history+api+deployment"
+          }
         }
       },
       "PortfolioOverview": {
@@ -1079,24 +4107,48 @@
               "totalChunks"
             ],
             "properties": {
-              "repoCount": { "type": "integer" },
-              "indexedCount": { "type": "integer" },
-              "indexRate": { "type": "number" },
-              "totalStars": { "type": "integer" },
-              "totalOpenIssues": { "type": "integer" },
-              "totalIndexedFiles": { "type": "integer" },
-              "totalChunks": { "type": "integer" }
+              "repoCount": {
+                "type": "integer"
+              },
+              "indexedCount": {
+                "type": "integer"
+              },
+              "indexRate": {
+                "type": "number"
+              },
+              "totalStars": {
+                "type": "integer"
+              },
+              "totalOpenIssues": {
+                "type": "integer"
+              },
+              "totalIndexedFiles": {
+                "type": "integer"
+              },
+              "totalChunks": {
+                "type": "integer"
+              }
             }
           },
           "languageBreakdown": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["language", "count", "percent"],
+              "required": [
+                "language",
+                "count",
+                "percent"
+              ],
               "properties": {
-                "language": { "type": "string" },
-                "count": { "type": "integer" },
-                "percent": { "type": "number" }
+                "language": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer"
+                },
+                "percent": {
+                  "type": "number"
+                }
               }
             }
           },
@@ -1104,18 +4156,30 @@
             "type": "object",
             "additionalProperties": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             }
           },
           "timeline": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["fullName", "pushedAt", "indexedAt"],
+              "required": [
+                "fullName",
+                "pushedAt",
+                "indexedAt"
+              ],
               "properties": {
-                "fullName": { "type": "string" },
-                "pushedAt": { "type": "string" },
-                "indexedAt": { "type": "string" }
+                "fullName": {
+                  "type": "string"
+                },
+                "pushedAt": {
+                  "type": "string"
+                },
+                "indexedAt": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -1133,12 +4197,24 @@
                 "knowledge"
               ],
               "properties": {
-                "repoId": { "type": "string" },
-                "fullName": { "type": "string" },
-                "language": { "type": "string" },
-                "stars": { "type": "integer" },
-                "openIssues": { "type": "integer" },
-                "pushedAt": { "type": "string" },
+                "repoId": {
+                  "type": "string"
+                },
+                "fullName": {
+                  "type": "string"
+                },
+                "language": {
+                  "type": "string"
+                },
+                "stars": {
+                  "type": "integer"
+                },
+                "openIssues": {
+                  "type": "integer"
+                },
+                "pushedAt": {
+                  "type": "string"
+                },
                 "knowledge": {
                   "type": "object",
                   "required": [
@@ -1149,11 +4225,21 @@
                     "commitSnapshots"
                   ],
                   "properties": {
-                    "indexed": { "type": "boolean" },
-                    "indexedAt": { "type": "string" },
-                    "fileCount": { "type": "integer" },
-                    "chunkCount": { "type": "integer" },
-                    "commitSnapshots": { "type": "integer" }
+                    "indexed": {
+                      "type": "boolean"
+                    },
+                    "indexedAt": {
+                      "type": "string"
+                    },
+                    "fileCount": {
+                      "type": "integer"
+                    },
+                    "chunkCount": {
+                      "type": "integer"
+                    },
+                    "commitSnapshots": {
+                      "type": "integer"
+                    }
                   }
                 }
               }
@@ -1161,22 +4247,33 @@
           },
           "notes": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
       "GitActionRequest": {
         "type": "object",
-        "required": ["action"],
+        "required": [
+          "action"
+        ],
         "properties": {
           "action": {
             "type": "string",
             "description": "One of: create_branch, commit_file, create_pr, sync_knowledge",
-            "enum": ["create_branch", "commit_file", "create_pr", "sync_knowledge"]
+            "enum": [
+              "create_branch",
+              "commit_file",
+              "create_pr",
+              "sync_knowledge"
+            ]
           },
           "params": {
             "type": "object",
-            "additionalProperties": { "type": "string" },
+            "additionalProperties": {
+              "type": "string"
+            },
             "default": {},
             "description": "create_branch: branch[, from]; commit_file: path, content[, message, branch]; create_pr: head[, title, base, body]"
           }
@@ -1184,19 +4281,796 @@
       },
       "NlCommandRequest": {
         "type": "object",
-        "required": ["command"],
+        "required": [
+          "command"
+        ],
         "properties": {
-          "command": { "type": "string" }
+          "command": {
+            "type": "string"
+          }
         }
       },
       "NlCommandResult": {
         "type": "object",
-        "required": ["success", "message"],
+        "required": [
+          "success",
+          "message"
+        ],
         "properties": {
-          "success": { "type": "boolean" },
-          "message": { "type": "string" },
-          "action": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
           "result": true
+        }
+      },
+      "FaqItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "category",
+          "question",
+          "answer",
+          "relatedFiles",
+          "confidence",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "overview",
+              "getting_started",
+              "api",
+              "deployment",
+              "architecture",
+              "troubleshooting"
+            ]
+          },
+          "question": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "relatedFiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileCitation"
+            }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "FaqListResponse": {
+        "type": "object",
+        "required": [
+          "repoId",
+          "status",
+          "generatedAt",
+          "itemCount",
+          "items"
+        ],
+        "properties": {
+          "repoId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "empty",
+              "ready",
+              "stale"
+            ]
+          },
+          "generatedAt": {
+            "type": "string"
+          },
+          "itemCount": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FaqItem"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FaqGenerateRequest": {
+        "type": "object",
+        "properties": {
+          "maxItems": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 24,
+            "default": 12
+          }
+        }
+      },
+      "FaqExportResponse": {
+        "type": "object",
+        "required": [
+          "repoId",
+          "format",
+          "content",
+          "itemCount",
+          "exportedAt"
+        ],
+        "properties": {
+          "repoId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "json"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "itemCount": {
+            "type": "integer"
+          },
+          "exportedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "NotificationSettings": {
+        "type": "object",
+        "required": [
+          "email",
+          "enabled",
+          "notifyOnKnowledgeBuild",
+          "notifyOnIssueAnalysis",
+          "notifyOnWikiReady",
+          "deliveryMode",
+          "updatedAt"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "notifyOnKnowledgeBuild": {
+            "type": "boolean"
+          },
+          "notifyOnIssueAnalysis": {
+            "type": "boolean"
+          },
+          "notifyOnWikiReady": {
+            "type": "boolean"
+          },
+          "deliveryMode": {
+            "type": "string",
+            "enum": [
+              "stub"
+            ],
+            "description": "Only stub delivery is implemented; no real SMTP send"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "lastTestAt": {
+            "type": "string"
+          },
+          "lastTestMessage": {
+            "type": "string"
+          }
+        }
+      },
+      "NotificationSettingsUpdate": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "notifyOnKnowledgeBuild": {
+            "type": "boolean"
+          },
+          "notifyOnIssueAnalysis": {
+            "type": "boolean"
+          },
+          "notifyOnWikiReady": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NotificationTestResult": {
+        "type": "object",
+        "required": [
+          "success",
+          "deliveryMode",
+          "message",
+          "sentAt"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "deliveryMode": {
+            "type": "string",
+            "enum": [
+              "stub"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "sentAt": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminLoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminLoginResponse": {
+        "type": "object",
+        "required": [
+          "token",
+          "username",
+          "role"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminPlatformStats": {
+        "type": "object",
+        "required": [
+          "totalRepos",
+          "syncedRepos",
+          "failedRepos",
+          "knowledgeChunks",
+          "memoryEntries",
+          "faqEntries",
+          "activeUsers",
+          "openIssues",
+          "syncSuccessRate",
+          "lastFullCheck"
+        ],
+        "properties": {
+          "totalRepos": {
+            "type": "integer"
+          },
+          "syncedRepos": {
+            "type": "integer"
+          },
+          "failedRepos": {
+            "type": "integer"
+          },
+          "knowledgeChunks": {
+            "type": "integer"
+          },
+          "memoryEntries": {
+            "type": "integer"
+          },
+          "faqEntries": {
+            "type": "integer"
+          },
+          "activeUsers": {
+            "type": "integer"
+          },
+          "openIssues": {
+            "type": "integer"
+          },
+          "syncSuccessRate": {
+            "type": "number"
+          },
+          "lastFullCheck": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminHealthTrendPoint": {
+        "type": "object",
+        "required": [
+          "date",
+          "success",
+          "failed"
+        ],
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "success": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdminSyncTask": {
+        "type": "object",
+        "required": [
+          "id",
+          "repoFullName",
+          "status",
+          "startedAt",
+          "filesSynced",
+          "trigger"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "repoId": {
+            "type": "string"
+          },
+          "repoFullName": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "running",
+              "failed",
+              "paused"
+            ]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filesSynced": {
+            "type": "integer"
+          },
+          "errorMessage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "webhook",
+              "scheduled"
+            ]
+          }
+        }
+      },
+      "AdminOverview": {
+        "type": "object",
+        "required": [
+          "stats",
+          "healthTrend",
+          "recentSyncTasks"
+        ],
+        "properties": {
+          "stats": {
+            "$ref": "#/components/schemas/AdminPlatformStats"
+          },
+          "healthTrend": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminHealthTrendPoint"
+            }
+          },
+          "recentSyncTasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminSyncTask"
+            }
+          }
+        }
+      },
+      "AdminSyncTaskList": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminSyncTask"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdminSyncFailure": {
+        "type": "object",
+        "required": [
+          "id",
+          "repoFullName",
+          "failedAt",
+          "errorType",
+          "errorMessage",
+          "retryCount",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "repoFullName": {
+            "type": "string"
+          },
+          "failedAt": {
+            "type": "string"
+          },
+          "errorType": {
+            "type": "string",
+            "enum": [
+              "network",
+              "auth",
+              "rate_limit",
+              "webhook",
+              "parse"
+            ]
+          },
+          "errorMessage": {
+            "type": "string"
+          },
+          "retryCount": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "retrying",
+              "ignored"
+            ]
+          }
+        }
+      },
+      "AdminSyncFailureList": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminSyncFailure"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdminIntegrityCheck": {
+        "type": "object",
+        "required": [
+          "repoFullName",
+          "knowledgeOk",
+          "memoryOk",
+          "faqOk",
+          "chunkCount",
+          "memoryCount",
+          "lastChecked",
+          "issues"
+        ],
+        "properties": {
+          "repoId": {
+            "type": "string"
+          },
+          "repoFullName": {
+            "type": "string"
+          },
+          "knowledgeOk": {
+            "type": "boolean"
+          },
+          "memoryOk": {
+            "type": "boolean"
+          },
+          "faqOk": {
+            "type": "boolean"
+          },
+          "chunkCount": {
+            "type": "integer"
+          },
+          "memoryCount": {
+            "type": "integer"
+          },
+          "lastChecked": {
+            "type": "string"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AdminIntegrityList": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminIntegrityCheck"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdminFaqRepoOption": {
+        "type": "object",
+        "required": [
+          "repoId",
+          "repoFullName",
+          "faqCount",
+          "memoryCount",
+          "lastUpdated"
+        ],
+        "properties": {
+          "repoId": {
+            "type": "string"
+          },
+          "repoFullName": {
+            "type": "string"
+          },
+          "faqCount": {
+            "type": "integer"
+          },
+          "memoryCount": {
+            "type": "integer"
+          },
+          "lastUpdated": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminFaqRepoList": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminFaqRepoOption"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdminFaqExportRequest": {
+        "type": "object",
+        "required": [
+          "repoIds"
+        ],
+        "properties": {
+          "repoIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "json"
+            ],
+            "default": "markdown"
+          }
+        }
+      },
+      "AdminFaqExportResponse": {
+        "type": "object",
+        "required": [
+          "format",
+          "content",
+          "itemCount",
+          "repoCount",
+          "exportedAt"
+        ],
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "json"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "itemCount": {
+            "type": "integer"
+          },
+          "repoCount": {
+            "type": "integer"
+          },
+          "exportedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminAuditLog": {
+        "type": "object",
+        "required": [
+          "id",
+          "admin",
+          "action",
+          "target",
+          "result",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "admin": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminAuditLogList": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminAuditLog"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdminCommunityUser": {
+        "type": "object",
+        "required": [
+          "id",
+          "login",
+          "email",
+          "boundRepos",
+          "status",
+          "lastLogin",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "login": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "boundRepos": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "suspended"
+            ]
+          },
+          "lastLogin": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminUserList": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminCommunityUser"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
         }
       }
     }

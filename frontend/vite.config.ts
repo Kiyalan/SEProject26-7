@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    host: '0.0.0.0', // 允许局域网其他设备访问
     proxy: {
       '/auth': 'http://localhost:8000',
       '/api': 'http://localhost:8000',

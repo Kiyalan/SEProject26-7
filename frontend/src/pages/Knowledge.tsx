@@ -1,6 +1,7 @@
 import { FileIcon, FileDirectoryIcon, GitCommitIcon, PackageIcon, SyncIcon } from '@primer/octicons-react'
-import { Alert, Checkbox, InputNumber, Spin, Tree } from 'antd'
+import { Alert, Spin, message } from 'antd'
 import type { DataNode } from 'antd/es/tree'
+import { Tree } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import PageShell from '../components/layout/PageShell'
 import PortfolioPanel from '../components/PortfolioPanel'
@@ -8,15 +9,38 @@ import { useRepoContext } from '../context/RepoContext'
 import {
   buildKnowledge,
   compareKnowledgeCommits,
+  exportRepoFaq,
   fetchKnowledge,
+  fetchKnowledgeBuildErrors,
+  fetchKnowledgeBuildTasks,
+  fetchKnowledgeGraphStatus,
   fetchKnowledgePolicy,
-  updateKnowledgeSettings,
+  fetchKnowledgeWiki,
+  fetchRepoFaq,
+  generateKnowledgeWiki,
+  generateRepoFaq,
   type CommitCompareResult,
+  type FaqItem,
+  type FaqListResponse,
   type IndexedCommit,
+  type KnowledgeBuildError,
+  type KnowledgeBuildTask,
+  type KnowledgeGraphStatus,
   type KnowledgeOverview,
   type KnowledgePolicy,
+  type KnowledgeWiki,
 } from '../api/generated'
 import type { KnowledgeNode } from '../lib/FrontendTypes'
+import { fetchRepoProgress, sleep } from '../lib/progress'
+
+const faqCategoryLabels: Record<string, string> = {
+  overview: '概览',
+  getting_started: '入门',
+  api: '接口',
+  deployment: '部署',
+  architecture: '架构',
+  troubleshooting: '排查',
+}
 
 function toTreeData(nodes: KnowledgeNode[]): DataNode[] {
   return nodes.map((node) => ({
@@ -38,16 +62,53 @@ export default function Knowledge() {
   const { currentRepoId, setCurrentRepo, repoList } = useRepoContext()
   const [loading, setLoading] = useState(false)
   const [building, setBuilding] = useState(false)
+  const [buildMessage, setBuildMessage] = useState('')
+  const [buildProgress, setBuildProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [overview, setOverview] = useState<KnowledgeOverview | null>(null)
-  const [indexEachCommit, setIndexEachCommit] = useState(false)
-  const [maxCommits, setMaxCommits] = useState(30)
   const [selectedCommit, setSelectedCommit] = useState('')
   const [compareBase, setCompareBase] = useState('')
   const [compareHead, setCompareHead] = useState('')
   const [compareResult, setCompareResult] = useState<CommitCompareResult | null>(null)
   const [comparing, setComparing] = useState(false)
   const [policy, setPolicy] = useState<KnowledgePolicy | null>(null)
+  const [graphStatus, setGraphStatus] = useState<KnowledgeGraphStatus | null>(null)
+  const [wiki, setWiki] = useState<KnowledgeWiki | null>(null)
+  const [selectedWikiPageId, setSelectedWikiPageId] = useState('')
+  const [generatingWiki, setGeneratingWiki] = useState(false)
+  const [buildTasks, setBuildTasks] = useState<KnowledgeBuildTask[]>([])
+  const [selectedTaskId, setSelectedTaskId] = useState('')
+  const [taskErrors, setTaskErrors] = useState<KnowledgeBuildError[]>([])
+  const [faq, setFaq] = useState<FaqListResponse | null>(null)
+  const [generatingFaq, setGeneratingFaq] = useState(false)
+  const [selectedFaqId, setSelectedFaqId] = useState('')
+
+  const loadTasks = useCallback(async (id: string) => {
+    try {
+      const { data } = await fetchKnowledgeBuildTasks({
+        path: { repoId: id },
+        query: { limit: 10 },
+      })
+      setBuildTasks(data.items)
+      const first = data.items[0]
+      if (first) {
+        setSelectedTaskId((prev) => prev || first.taskId)
+      }
+    } catch {
+      setBuildTasks([])
+    }
+  }, [])
+
+  const loadFaq = useCallback(async (id: string) => {
+    try {
+      const { data } = await fetchRepoFaq({ path: { repoId: id } })
+      setFaq(data)
+      setSelectedFaqId(data.items[0]?.id ?? '')
+    } catch {
+      setFaq(null)
+      setSelectedFaqId('')
+    }
+  }, [])
 
   const loadOverview = useCallback(
     async (id: string, commitSha?: string) => {
@@ -60,8 +121,6 @@ export default function Knowledge() {
           query: commitSha ? { commit: commitSha } : undefined,
         })
         setOverview(data)
-        setIndexEachCommit(data.settings?.indexEachCommit ?? false)
-        setMaxCommits(data.settings?.maxCommits ?? 30)
         const active = commitSha || data.commitSha || data.settings?.activeCommitSha || ''
         setSelectedCommit(active)
         const commits = data.commits || []
@@ -70,7 +129,11 @@ export default function Knowledge() {
           setCompareHead(commits[0].commitSha)
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : '加载失败')
+        const raw = err instanceof Error ? err.message : '加载失败'
+        const friendly = /Unexpected end of file|EOF|ECONNRESET|Failed to fetch/i.test(raw)
+          ? '知识库概览响应中断（常见于文件树过大或 CodeWiki 暂不可用）。已尽量展示其它面板，可刷新或重新构建。'
+          : raw
+        setError(friendly)
       } finally {
         setLoading(false)
       }
@@ -81,40 +144,114 @@ export default function Knowledge() {
   useEffect(() => {
     if (currentRepoId) {
       loadOverview(currentRepoId)
+      loadTasks(currentRepoId)
+      loadFaq(currentRepoId)
       fetchKnowledgePolicy({ path: { repoId: currentRepoId } })
         .then(({ data }) => setPolicy(data))
         .catch(() => setPolicy(null))
+      fetchKnowledgeGraphStatus({ path: { repoId: currentRepoId } })
+        .then(({ data }) => setGraphStatus(data))
+        .catch(() => setGraphStatus(null))
+      fetchKnowledgeWiki({ path: { repoId: currentRepoId }, query: { language: 'zh' } })
+        .then(({ data }) => {
+          setWiki(data)
+          setSelectedWikiPageId(data.pages[0]?.id ?? '')
+        })
+        .catch(() => {
+          setWiki(null)
+          setSelectedWikiPageId('')
+        })
     }
-  }, [currentRepoId, loadOverview])
+  }, [currentRepoId, loadOverview, loadTasks, loadFaq])
 
-  const handleSelectCommit = async (commit: IndexedCommit) => {
-    if (!currentRepoId) return
-    setSelectedCommit(commit.commitSha)
-    await updateKnowledgeSettings({
-      path: { repoId: currentRepoId },
-      body: { activeCommitSha: commit.commitSha },
+  useEffect(() => {
+    if (!currentRepoId || !selectedTaskId) {
+      setTaskErrors([])
+      return
+    }
+    fetchKnowledgeBuildErrors({
+      path: { repoId: currentRepoId, taskId: selectedTaskId },
     })
-    await loadOverview(currentRepoId, commit.commitSha)
+      .then(({ data }) => setTaskErrors(data.items))
+      .catch(() => setTaskErrors([]))
+  }, [currentRepoId, selectedTaskId])
+
+  const handleSelectCommit = (commit: IndexedCommit) => {
+    setSelectedCommit(commit.commitSha)
   }
 
   const handleBuild = async () => {
     if (!currentRepoId) return
     setBuilding(true)
+    setBuildMessage('正在启动构建…')
+    setBuildProgress(0)
     setError(null)
+
+    let pollTimer: ReturnType<typeof setInterval> | null = null
+    const stopPolling = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer)
+        pollTimer = null
+      }
+    }
+
+    pollTimer = setInterval(async () => {
+      try {
+        const snapshot = await fetchRepoProgress(currentRepoId)
+        const knowledge = snapshot.knowledge
+        setBuildMessage(knowledge.message || knowledge.status)
+        setBuildProgress(knowledge.progress ?? 0)
+        if (knowledge.status === 'done' || knowledge.status === 'error') {
+          stopPolling()
+          if (knowledge.status === 'error') {
+            setError(knowledge.message || '构建失败')
+            setBuilding(false)
+          }
+        }
+      } catch {
+        // 轮询失败时不打断构建
+      }
+    }, 1500)
+
     try {
-      await buildKnowledge({
+      const { data } = await buildKnowledge({
         path: { repoId: currentRepoId },
-        body: { indexEachCommit, maxCommits },
       })
-      await updateKnowledgeSettings({
-        path: { repoId: currentRepoId },
-        body: { indexEachCommit, maxCommits },
-      })
+
+      const startedAsync = Boolean((data as { async?: boolean } | undefined)?.async)
+      if (startedAsync) {
+        while (true) {
+          const snapshot = await fetchRepoProgress(currentRepoId)
+          const knowledge = snapshot.knowledge
+          setBuildMessage(knowledge.message || '构建中…')
+          setBuildProgress(knowledge.progress ?? 0)
+          if (knowledge.status === 'done') {
+            break
+          }
+          if (knowledge.status === 'error') {
+            throw new Error(knowledge.message || '构建失败')
+          }
+          if (knowledge.status === 'idle') {
+            await sleep(1500)
+            continue
+          }
+          await sleep(1500)
+        }
+      }
+
       await loadOverview(currentRepoId)
+      await loadTasks(currentRepoId)
+      fetchKnowledgeGraphStatus({ path: { repoId: currentRepoId } })
+        .then(({ data: status }) => setGraphStatus(status))
+        .catch(() => setGraphStatus(null))
     } catch (err) {
       setError(err instanceof Error ? err.message : '构建失败')
+      if (currentRepoId) await loadTasks(currentRepoId)
     } finally {
+      stopPolling()
       setBuilding(false)
+      setBuildMessage('')
+      setBuildProgress(0)
     }
   }
 
@@ -135,14 +272,102 @@ export default function Knowledge() {
     }
   }
 
+  const handleGenerateWiki = async () => {
+    if (!currentRepoId) return
+    setGeneratingWiki(true)
+    setError(null)
+    try {
+      const { data } = await generateKnowledgeWiki({
+        path: { repoId: currentRepoId },
+        query: { language: 'zh' },
+      })
+      setWiki({
+        status: data.status,
+        provider: 'codewiki',
+        language: data.language,
+        pages: [],
+      })
+      setSelectedWikiPageId('')
+      for (let attempt = 0; attempt < 400; attempt += 1) {
+        await sleep(3000)
+        const { data: current } = await fetchKnowledgeWiki({
+          path: { repoId: currentRepoId },
+          query: { language: 'zh' },
+        })
+        setWiki(current)
+        if (current.pages.length > 0 || current.status === 'ready') {
+          setSelectedWikiPageId(current.pages[0]?.id ?? '')
+          return
+        }
+        if (current.status === 'failed') {
+          const msg = (current as Record<string, unknown>).error as string
+          throw new Error(msg || 'Wiki 生成失败，请检查 CodeWiki LLM 配置和服务日志')
+        }
+      }
+      throw new Error('Wiki 仍在生成，可稍后重新打开页面查看')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Wiki 生成失败')
+    } finally {
+      setGeneratingWiki(false)
+    }
+  }
+
+  const handleGenerateFaq = async () => {
+    if (!currentRepoId) return
+    setGeneratingFaq(true)
+    setError(null)
+    try {
+      const { data } = await generateRepoFaq({
+        path: { repoId: currentRepoId },
+        body: { maxItems: 12 },
+      })
+      setFaq(data)
+      setSelectedFaqId(data.items[0]?.id ?? '')
+      message.success(data.message || `已生成 ${data.itemCount} 条 FAQ`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'FAQ 生成失败'
+      setError(msg)
+      message.error(msg)
+    } finally {
+      setGeneratingFaq(false)
+    }
+  }
+
+  const handleExportFaq = async (format: 'markdown' | 'json') => {
+    if (!currentRepoId) return
+    try {
+      const { data } = await exportRepoFaq({
+        path: { repoId: currentRepoId },
+        query: { format },
+      })
+      const blob = new Blob([data.content], {
+        type: format === 'markdown' ? 'text/markdown' : 'application/json',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `faq-${currentRepoId}.${format === 'markdown' ? 'md' : 'json'}`
+      a.click()
+      URL.revokeObjectURL(url)
+      message.success(`已导出 ${data.itemCount} 条 FAQ`)
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '导出失败')
+    }
+  }
+
   const langEntries = Object.entries(overview?.languages || {})
   const langTotal = langEntries.reduce((s, [, c]) => s + c, 0) || 1
   const commits = overview?.commits || []
+  const effectiveGraphStatus = graphStatus ?? overview?.graphStatus ?? null
+  const selectedWikiPage = wiki?.pages.find((page) => page.id === selectedWikiPageId) ?? wiki?.pages[0]
+  const selectedFaq: FaqItem | undefined =
+    faq?.items.find((item) => item.id === selectedFaqId) ?? faq?.items[0]
+  const selectedTask = buildTasks.find((task) => task.taskId === selectedTaskId) ?? buildTasks[0]
 
   return (
     <PageShell
       title="知识库"
-      description="按 commit 构建多版本索引，相同内容自动去重存储，支持历史对比"
+      description="CodeWiki GraphRAG 代码知识图谱、按需 Wiki 与历史版本对比"
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <select
@@ -159,41 +384,57 @@ export default function Knowledge() {
           </select>
           <button type="button" className="gh-btn gh-btn-primary" disabled={building} onClick={handleBuild}>
             <SyncIcon size={14} />
-            {building ? '构建中…' : indexEachCommit ? `索引最近 ${maxCommits} 个 commit` : '索引 HEAD'}
+            {building
+              ? buildProgress > 0
+                ? `构建中 ${buildProgress}%`
+                : '构建中…'
+              : '构建知识库'}
           </button>
         </div>
       }
     >
+      {building && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={buildMessage || '知识库正在后台构建'}
+          description={
+            <div>
+              <div>
+                {buildProgress > 0
+                  ? `进度 ${buildProgress}% · 首次构建会执行 AST、代码图与 GraphRAG，后续同步使用增量更新`
+                  : '正在启动…'}
+              </div>
+              <div className="rp-progress">
+                <div
+                  className={`rp-progress-bar${buildProgress <= 0 ? ' indeterminate' : ''}`}
+                  style={buildProgress > 0 ? { width: `${Math.min(buildProgress, 100)}%` } : undefined}
+                />
+              </div>
+            </div>
+          }
+        />
+      )}
+
+      {generatingWiki && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          className="rp-loading-pulse"
+          message="Wiki 正在生成"
+          description={
+            <div className="rp-progress">
+              <div className="rp-progress-bar indeterminate" />
+            </div>
+          }
+        />
+      )}
+
       {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
 
       <PortfolioPanel />
-
-      <div className="gh-box" style={{ marginBottom: 16 }}>
-        <div className="gh-box-header">索引策略</div>
-        <div className="gh-box-body">
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
-            <Checkbox checked={indexEachCommit} onChange={(e) => setIndexEachCommit(e.target.checked)}>
-              为每个 commit 分别构建知识库（保留完整历史切片）
-            </Checkbox>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="gh-muted">最多索引</span>
-              <InputNumber min={1} max={100} value={maxCommits} onChange={(v) => setMaxCommits(v ?? 30)} />
-              <span className="gh-muted">个 commit</span>
-            </label>
-          </div>
-          <p className="gh-muted" style={{ margin: '12px 0 0', fontSize: 12 }}>
-            存储采用内容寻址：文件与片段按 SHA-256 哈希去重，各 commit 仅保存引用，相同内容只占一份空间。
-          </p>
-          {overview?.deduplication && (
-            <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <span className="gh-label">已索引 {overview.deduplication.indexedCommits} 个 commit</span>
-              <span className="gh-label">唯一文件 blob {overview.deduplication.uniqueFileBlobs}</span>
-              <span className="gh-label">唯一片段 blob {overview.deduplication.uniqueChunkBlobs}</span>
-              <span className="gh-label">文件引用 {overview.deduplication.fileReferences}</span>
-            </div>
-          )}
-        </div>
-      </div>
 
       {overview?.status === 'not_indexed' && (
         <Alert
@@ -201,7 +442,7 @@ export default function Knowledge() {
           showIcon
           style={{ marginBottom: 16 }}
           message="尚未构建知识库"
-          description="勾选「为每个 commit 分别构建」可保留每次提交的快照；未勾选则仅索引当前 HEAD。"
+          description="点击「构建知识库」生成代码索引和 GraphRAG 数据。"
         />
       )}
 
@@ -211,6 +452,318 @@ export default function Knowledge() {
         </div>
       ) : (
         <>
+          <div className="gh-box" style={{ marginBottom: 16 }}>
+            <div className="gh-box-header">
+              CodeWiki GraphRAG
+              <span className="gh-label">{effectiveGraphStatus?.status ?? '未就绪'}</span>
+            </div>
+            <div className="gh-box-body">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
+                {[
+                  ['节点', effectiveGraphStatus?.nodeCount ?? 0],
+                  ['边', effectiveGraphStatus?.edgeCount ?? 0],
+                  ['社区', effectiveGraphStatus?.communityCount ?? 0],
+                  ['片段', effectiveGraphStatus?.chunkCount ?? overview?.chunkCount ?? 0],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 6 }}>
+                    <div className="gh-muted" style={{ fontSize: 12 }}>{label}</div>
+                    <strong style={{ fontSize: 20 }}>{value}</strong>
+                  </div>
+                ))}
+              </div>
+              {effectiveGraphStatus?.message && (
+                <p className="gh-muted" style={{ margin: '12px 0 0' }}>{effectiveGraphStatus.message}</p>
+              )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+                <span className="gh-label">状态 {overview?.status ?? '—'}</span>
+                <span className="gh-label">Wiki {overview?.wikiStatus ?? wiki?.status ?? '—'}</span>
+                {overview?.indexedAt && <span className="gh-label">索引于 {overview.indexedAt}</span>}
+                {overview?.license && <span className="gh-label">License {overview.license}</span>}
+                {(overview?.topics || []).map((topic) => (
+                  <span key={topic} className="gh-label gh-label-blue">{topic}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="gh-grid-2" style={{ marginBottom: 16 }}>
+            <div className="gh-box">
+              <div className="gh-box-header">索引质量</div>
+              <div className="gh-box-body">
+                {overview?.quality ? (
+                  <>
+                    <div className="gh-data-row">
+                      <span className="gh-muted">状态</span>
+                      <span className="gh-label">{overview.quality.status}</span>
+                    </div>
+                    <div className="gh-data-row">
+                      <span className="gh-muted">得分</span>
+                      <strong>{Math.round(overview.quality.score)}</strong>
+                    </div>
+                    <div className="gh-data-row">
+                      <span className="gh-muted">最近任务</span>
+                      <span className="gh-muted" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                        {overview.quality.lastTaskId || '—'}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="gh-muted" style={{ margin: 0 }}>构建后显示质量报告</p>
+                )}
+              </div>
+            </div>
+            <div className="gh-box">
+              <div className="gh-box-header">存储与去重</div>
+              <div className="gh-box-body">
+                {overview?.deduplication ? (
+                  <>
+                    <div className="gh-data-row">
+                      <span className="gh-muted">索引提交</span>
+                      <span>{overview.deduplication.indexedCommits}</span>
+                    </div>
+                    <div className="gh-data-row">
+                      <span className="gh-muted">文件引用</span>
+                      <span>{overview.deduplication.fileReferences}</span>
+                    </div>
+                    <div className="gh-data-row">
+                      <span className="gh-muted">唯一 chunk</span>
+                      <span>{overview.deduplication.uniqueChunkBlobs}</span>
+                    </div>
+                    {overview.storageModel?.dedupStrategy && (
+                      <p className="gh-muted" style={{ margin: '8px 0 0', fontSize: 12 }}>
+                        策略：{overview.storageModel.dedupStrategy}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="gh-muted" style={{ margin: 0 }}>构建后显示</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {(overview?.modules?.length ?? 0) > 0 && (
+            <div className="gh-box" style={{ marginBottom: 16 }}>
+              <div className="gh-box-header">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <PackageIcon size={16} />
+                  模块分布
+                </span>
+              </div>
+              <div className="gh-box-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+                {overview!.modules!.map((mod) => (
+                  <div key={mod.name} style={{ padding: 10, border: '1px solid var(--border)', borderRadius: 6 }}>
+                    <strong>{mod.name}</strong>
+                    <div className="gh-muted" style={{ fontSize: 12, marginTop: 4 }}>{mod.desc}</div>
+                    <div className="gh-muted" style={{ fontSize: 12 }}>{mod.files} 文件</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="gh-box" style={{ marginBottom: 16 }}>
+            <div className="gh-box-header">
+              <span>项目 Wiki</span>
+              <button
+                type="button"
+                className="gh-btn gh-btn-primary"
+                disabled={generatingWiki || building}
+                onClick={handleGenerateWiki}
+              >
+                {generatingWiki ? '生成中…' : wiki?.status === 'ready' ? '重新生成 Wiki' : '生成 Wiki'}
+              </button>
+            </div>
+            <div className="gh-box-body">
+              {wiki?.pages.length ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 16 }}>
+                  <div style={{ borderRight: '1px solid var(--border)', paddingRight: 12 }}>
+                    {wiki.pages
+                      .slice()
+                      .sort((a, b) => a.order - b.order)
+                      .map((page) => (
+                        <button
+                          key={page.id}
+                          type="button"
+                          className={`gh-commit-item${selectedWikiPage?.id === page.id ? ' active' : ''}`}
+                          style={{ width: '100%', textAlign: 'left' }}
+                          onClick={() => setSelectedWikiPageId(page.id)}
+                        >
+                          <strong>{page.title}</strong>
+                          {page.path && <div className="gh-muted" style={{ fontSize: 12 }}>{page.path}</div>}
+                        </button>
+                      ))}
+                  </div>
+                  <article>
+                    <h3 style={{ marginTop: 0 }}>{selectedWikiPage?.title}</h3>
+                    <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.7, margin: 0 }}>
+                      {selectedWikiPage?.content}
+                    </pre>
+                  </article>
+                </div>
+              ) : (
+                <p className="gh-muted" style={{ margin: 0 }}>
+                  {wiki?.status === 'queued' || wiki?.status === 'generating'
+                    ? 'Wiki 正在生成，请稍后重新打开页面查看。'
+                    : '尚未生成 Wiki。按需生成后可在此浏览页面列表和内容。'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="gh-box" style={{ marginBottom: 16 }}>
+            <div className="gh-box-header">
+              <span>FAQ 聚类</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="gh-btn"
+                  disabled={!faq?.items.length}
+                  onClick={() => handleExportFaq('markdown')}
+                >
+                  导出 MD
+                </button>
+                <button
+                  type="button"
+                  className="gh-btn"
+                  disabled={!faq?.items.length}
+                  onClick={() => handleExportFaq('json')}
+                >
+                  导出 JSON
+                </button>
+                <button
+                  type="button"
+                  className="gh-btn gh-btn-primary"
+                  disabled={generatingFaq || building}
+                  onClick={handleGenerateFaq}
+                >
+                  {generatingFaq ? '生成中…' : faq?.status === 'ready' ? '重新生成 FAQ' : '生成 FAQ'}
+                </button>
+              </div>
+            </div>
+            <div className="gh-box-body">
+              {generatingFaq && (
+                <div style={{ marginBottom: 12 }}>
+                  <div className="rp-loading-pulse">正在从 GraphRAG 证据聚类 FAQ…</div>
+                  <div className="rp-progress">
+                    <div className="rp-progress-bar indeterminate" />
+                  </div>
+                </div>
+              )}
+              {faq?.items.length ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '240px minmax(0, 1fr)', gap: 16 }}>
+                  <div style={{ borderRight: '1px solid var(--border)', paddingRight: 12 }}>
+                    {faq.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`gh-commit-item${selectedFaq?.id === item.id ? ' active' : ''}`}
+                        style={{ width: '100%', textAlign: 'left' }}
+                        onClick={() => setSelectedFaqId(item.id)}
+                      >
+                        <span className="gh-label" style={{ marginBottom: 4 }}>
+                          {faqCategoryLabels[item.category] || item.category}
+                        </span>
+                        <div style={{ fontWeight: 500 }}>{item.question}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <article>
+                    <h3 style={{ marginTop: 0 }}>{selectedFaq?.question}</h3>
+                    <p className="gh-muted" style={{ fontSize: 12 }}>
+                      置信度 {Math.round((selectedFaq?.confidence ?? 0) * 100)}% · {selectedFaq?.updatedAt}
+                    </p>
+                    <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.7, margin: 0 }}>
+                      {selectedFaq?.answer}
+                    </pre>
+                    {selectedFaq?.relatedFiles?.length ? (
+                      <div style={{ marginTop: 12 }}>
+                        <strong style={{ fontSize: 13 }}>相关文件</strong>
+                        {selectedFaq.relatedFiles.map((file) => (
+                          <div key={`${file.file}-${file.line}`} className="gh-muted" style={{ fontSize: 12 }}>
+                            {file.file}
+                            {file.line ? `:${file.line}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </article>
+                </div>
+              ) : (
+                <p className="gh-muted" style={{ margin: 0 }}>
+                  {faq?.message || '尚未生成 FAQ。构建知识库后，可按主题聚类生成常见问答。'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="gh-box" style={{ marginBottom: 16 }}>
+            <div className="gh-box-header">
+              构建日志
+              <button type="button" className="gh-btn gh-btn-sm" onClick={() => currentRepoId && loadTasks(currentRepoId)}>
+                <SyncIcon size={12} />
+                刷新
+              </button>
+            </div>
+            <div className="gh-box-body">
+              {buildTasks.length === 0 ? (
+                <p className="gh-muted" style={{ margin: 0 }}>暂无构建任务记录</p>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 16 }}>
+                  <div style={{ borderRight: '1px solid var(--border)', paddingRight: 12, maxHeight: 280, overflowY: 'auto' }}>
+                    {buildTasks.map((task) => (
+                      <button
+                        key={task.taskId}
+                        type="button"
+                        className={`gh-commit-item${selectedTask?.taskId === task.taskId ? ' active' : ''}`}
+                        style={{ width: '100%', textAlign: 'left' }}
+                        onClick={() => setSelectedTaskId(task.taskId)}
+                      >
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                          <span className={`gh-label${task.status === 'failed' ? ' gh-label-red' : task.status === 'completed' ? ' gh-label-green' : ''}`}>
+                            {task.status}
+                          </span>
+                          <span className="gh-muted" style={{ fontSize: 12 }}>{Math.round(task.progress)}%</span>
+                        </div>
+                        <div style={{ fontSize: 12, fontFamily: 'monospace' }}>{task.taskId.slice(0, 8)}</div>
+                        <div className="gh-muted" style={{ fontSize: 12 }}>{task.requestedAt}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <div>
+                    {selectedTask && (
+                      <>
+                        <p style={{ margin: '0 0 8px' }}>{selectedTask.message || '（无消息）'}</p>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                          <span className="gh-label">模式 {selectedTask.mode}</span>
+                          <span className="gh-label">质量 {selectedTask.qualityStatus}</span>
+                          <span className="gh-label">片段 {selectedTask.chunksTotal}</span>
+                          <span className="gh-label">失败文件 {selectedTask.filesFailed}</span>
+                        </div>
+                        <div className="rp-progress" style={{ marginBottom: 12 }}>
+                          <div className="rp-progress-bar" style={{ width: `${Math.min(selectedTask.progress, 100)}%` }} />
+                        </div>
+                        <h4 style={{ margin: '0 0 8px', fontSize: 13 }}>错误 / 警告</h4>
+                        {taskErrors.length === 0 ? (
+                          <p className="gh-muted" style={{ margin: 0 }}>该任务无错误明细</p>
+                        ) : (
+                          <ul style={{ margin: 0, paddingLeft: 18, maxHeight: 180, overflowY: 'auto' }}>
+                            {taskErrors.map((err) => (
+                              <li key={err.id} style={{ marginBottom: 8, fontSize: 12 }}>
+                                <strong>[{err.stage}]</strong> {err.filePath || '—'} · {err.message}
+                                {err.retryable ? '（可重试）' : ''}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {commits.length > 0 && (
             <div className="gh-grid-2" style={{ marginBottom: 16 }}>
               <div className="gh-box">
@@ -337,6 +890,48 @@ export default function Knowledge() {
               </div>
             </div>
           </div>
+
+          {overview?.moduleSummary && (
+            <div className="gh-box" style={{ marginBottom: 16 }}>
+              <div className="gh-box-header">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <PackageIcon size={16} />
+                  模块概述 (AI)
+                </span>
+              </div>
+              <div className="gh-box-body">
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.8, fontFamily: 'inherit' }}>
+                  {overview.moduleSummary}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {overview?.indexedFiles?.some((f) => f.summary) && (
+            <div className="gh-box" style={{ marginBottom: 16 }}>
+              <div className="gh-box-header">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FileIcon size={16} />
+                  文件摘要 (AI)
+                </span>
+                <span className="gh-muted" style={{ fontWeight: 400 }}>
+                  {overview.indexedFiles.filter((f) => f.summary).length} 个文件
+                </span>
+              </div>
+              <div className="gh-box-body" style={{ maxHeight: 400, overflowY: 'auto' }}>
+                {overview.indexedFiles
+                  .filter((f) => f.summary)
+                  .map((f) => (
+                    <div key={f.path} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--accent)', marginBottom: 4 }}>
+                        {f.path}
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--muted)' }}>{f.summary}</div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
 
           <div className="gh-grid-2">
             <div className="gh-box">
