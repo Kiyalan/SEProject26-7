@@ -1,6 +1,7 @@
 package com.repopilot.controller;
 
 import com.repopilot.service.AdminService;
+import com.repopilot.service.KnowledgeService;
 import com.repopilot.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -15,10 +16,12 @@ public class AdminController {
 
     private final AdminService adminService;
     private final UserService userService;
+    private final KnowledgeService knowledgeService;
 
-    public AdminController(AdminService adminService, UserService userService) {
+    public AdminController(AdminService adminService, UserService userService, KnowledgeService knowledgeService) {
         this.adminService = adminService;
         this.userService = userService;
+        this.knowledgeService = knowledgeService;
     }
 
     @PostMapping("/login")
@@ -72,6 +75,15 @@ public class AdminController {
     Map<String, Object> faqRepos(@RequestHeader(value = "Authorization", required = false) String authorization) {
         authorize(authorization);
         return adminService.faqRepos();
+    }
+
+    @DeleteMapping("/repos/{repoId}/knowledge")
+    Map<String, Object> resetRepoKnowledge(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable String repoId
+    ) {
+        String admin = authorize(authorization);
+        return knowledgeService.resetKnowledge(repoId, admin);
     }
 
     @PostMapping("/faq/export")

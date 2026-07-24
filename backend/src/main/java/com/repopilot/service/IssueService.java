@@ -33,14 +33,20 @@ public class IssueService {
     private final KnowledgeService knowledgeService;
     private final GitHubClient github;
     private final ProgressService progress;
+    private final LlmService llmService;
+    private final NotificationService notificationService;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Map<String, Deque<Map<String, Object>>> pendingByRepo = new ConcurrentHashMap<>();
 
-    public IssueService(IssueAnalysisRepository analysisRepository, KnowledgeService knowledgeService, GitHubClient github, ProgressService progress) {
+    public IssueService(IssueAnalysisRepository analysisRepository, KnowledgeService knowledgeService,
+                        GitHubClient github, ProgressService progress, LlmService llmService,
+                        NotificationService notificationService) {
         this.analysisRepository = analysisRepository;
         this.knowledgeService = knowledgeService;
         this.github = github;
         this.progress = progress;
+        this.llmService = llmService;
+        this.notificationService = notificationService;
     }
 
     public void onIssuesLoaded(String repoId, List<Map<String, Object>> issues, String token, String ownerLogin) {
@@ -71,7 +77,7 @@ public class IssueService {
             }
         }
 
-        Map<String, Object> result = classifyAndSave(repoId, enriched, ownerLogin);
+        Map<String, Object> result = classifyAndSave(repoId, enriched, token, ownerLogin);
         if (!force) {
             enqueue(repoId, enriched);
             if (pendingByRepo.getOrDefault(repoId, new ArrayDeque<>()).size() >= BATCH_THRESHOLD) {
@@ -115,7 +121,7 @@ public class IssueService {
                     continue;
                 }
                 try {
-                    classifyAndSave(repoId, enrichIssue(repoId, issue, token), ownerLogin);
+                    classifyAndSave(repoId, enrichIssue(repoId, issue, token), token, ownerLogin);
                     done++;
                     progress.step(progressKey, "已分析 " + done + "/" + batch.size());
                 } catch (Exception ex) {
@@ -156,7 +162,7 @@ public class IssueService {
     }
 
     @Transactional
-    private Map<String, Object> classifyAndSave(String repoId, Map<String, Object> issue, String ownerLogin) {
+    private Map<String, Object> classifyAndSave(String repoId, Map<String, Object> issue, String token, String ownerLogin) {
         String title = Objects.toString(issue.get("title"), "");
         String body = Objects.toString(issue.get("body"), "");
         List<String> labels = parseLabels(issue.get("labels"));
@@ -168,7 +174,6 @@ public class IssueService {
         try {
             contexts = knowledgeService.retrieveChunks(repoId, ownerLogin, title + "\n" + body, null, 4);
         } catch (Exception ignored) {
-            // Knowledge may not be built yet; Issue classification still works without GraphRAG.
             contexts = List.of();
         }
         List<Map<String, Object>> relatedFiles = contexts.stream()
@@ -179,6 +184,21 @@ public class IssueService {
 
         String summary = buildSummary(classification, title, labels, milestone, relatedFiles);
         String reply = buildReply(classification.type(), labels, relatedFiles);
+        boolean llmEnhanced = false;
+
+        // LLM 增强分类与回复
+        if (llmService.configured() && !contexts.isEmpty()) {
+            try {
+                String llmReply = llmGenerateReply(title, body, labels, classification.type(), relatedFiles, contexts);
+                if (llmReply != null && !llmReply.isBlank()) {
+                    reply = llmReply;
+                    llmEnhanced = true;
+                }
+            } catch (Exception ignored) {
+                // LLM 不可用时回退到规则生成
+            }
+        }
+
         String analyzedAt = LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -195,10 +215,77 @@ public class IssueService {
         result.put("relatedFiles", relatedFiles);
         result.put("analyzedAt", analyzedAt);
         result.put("needsCodeChange", "bug_fix".equals(classification.type()));
-        result.put("llmEnhanced", false);
+        result.put("llmEnhanced", llmEnhanced);
 
         upsertAnalysis(result, labels, milestone, project);
+
+        // 自动回复到 GitHub Issue
+        int issueNumber = issue.get("number") instanceof Number n ? n.intValue() : 0;
+        if (issueNumber > 0) {
+            try {
+                postIssueComment(repoId, issueNumber, reply, token);
+            } catch (Exception ignored) {
+                // GitHub 回复失败不影响主流程
+            }
+        }
+
+        // 发送邮件通知
+        try {
+            String emailSubject = "[Issue #" + issueNumber + "] " + title + " - " + TYPE_LABELS.getOrDefault(classification.type(), "其他");
+            String emailBody = "仓库: " + repoId + "\n"
+                    + "Issue: #" + issueNumber + " " + title + "\n"
+                    + "分类: " + TYPE_LABELS.getOrDefault(classification.type(), "其他") + " (置信度: " + String.format("%.0f%%", classification.confidence() * 100) + ")\n"
+                    + "摘要: " + summary + "\n\n"
+                    + "自动回复:\n" + reply + "\n\n"
+                    + (llmEnhanced ? "（由 LLM 增强生成）\n\n" : "")
+                    + "—— RepoPilot";
+            notificationService.notifyIfEnabled(ownerLogin, emailSubject, emailBody);
+        } catch (Exception ignored) {
+            // 邮件通知失败不影响主流程
+        }
+
         return result;
+    }
+
+    private void postIssueComment(String repoId, int issueNumber, String comment, String token) {
+        try {
+            JsonNode repo = github.get("/repositories/" + repoId, token);
+            String fullName = repo.path("full_name").asText();
+            if (fullName.isBlank()) return;
+            github.post("/repos/" + fullName + "/issues/" + issueNumber + "/comments", token,
+                    Map.of("body", "🤖 RepoPilot 自动分析回复：\n\n" + comment));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String llmGenerateReply(String title, String body, List<String> labels, String type,
+                                     List<Map<String, Object>> relatedFiles,
+                                     List<Map<String, Object>> contexts) {
+        String labelText = labels.isEmpty() ? "无" : String.join(", ", labels);
+        String fileInfo = relatedFiles.isEmpty() ? "未命中相关文件"
+                : relatedFiles.stream().limit(5).map(f -> f.get("file").toString()).reduce((a, b) -> a + ", " + b).orElse("");
+        String prompt = "你是一个开源项目维护者。请为以下 GitHub Issue 生成一条友好、专业的自动回复（不超过 200 字）。\n\n"
+                + "Issue 标题: " + title + "\n"
+                + "Issue 描述: " + (body.length() > 500 ? body.substring(0, 500) + "..." : body) + "\n"
+                + "自动分类: " + TYPE_LABELS.getOrDefault(type, "其他") + "\n"
+                + "标签: " + labelText + "\n"
+                + "相关文件: " + fileInfo + "\n\n"
+                + "回复要求：\n"
+                + "- 语气友好、专业\n"
+                + "- 针对分类类型给出针对性回复\n"
+                + "- 如果是 bug_fix 类型，询问复现步骤\n"
+                + "- 如果是 usage_question 类型，引导查看文档\n"
+                + "- 如果是 feature_request 类型，感谢建议并说明会评估\n"
+                + "- 如果是 duplicate 类型，请用户关注原 Issue\n"
+                + "- 如果是 insufficient_info 类型，请用户补充信息\n"
+                + "- 结尾不需要署名\n\n"
+                + "回复：";
+
+        try {
+            return llmService.generateAnswer(prompt, "issue_reply", contexts);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void upsertAnalysis(Map<String, Object> result, List<String> labels, String milestone, String project) {
@@ -215,7 +302,7 @@ public class IssueService {
         entity.setReason(Objects.toString(result.get("reason"), ""));
         entity.setRelatedFiles(JsonUtils.toJson(result.get("relatedFiles")));
         entity.setAnalyzedAt(Objects.toString(result.get("analyzedAt"), ""));
-        entity.setLlmEnhanced(false);
+        entity.setLlmEnhanced(Boolean.TRUE.equals(result.get("llmEnhanced")));
         entity.setIssueLabels(JsonUtils.toJson(labels));
         entity.setIssueMilestone(milestone);
         entity.setIssueProject(project);

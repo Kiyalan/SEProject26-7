@@ -3,11 +3,13 @@ package com.repopilot.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "repopilot")
-public record AppProperties(Github github, Llm llm, CodeWiki codewiki) {
+public record AppProperties(Github github, Llm llm, Mail mail, CodeWiki codewiki) {
 
     public record Github(String clientId, String clientSecret, String callbackUrl, String frontendUrl) {}
 
     public record Llm(String apiKey, String baseUrl, String model, String embeddingModel, String httpReferer, String appTitle) {}
+
+    public record Mail(String host, int port, String username, String password, String from) {}
 
     public record CodeWiki(
             String baseUrl,

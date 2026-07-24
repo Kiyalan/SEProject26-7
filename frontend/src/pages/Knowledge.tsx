@@ -8,6 +8,7 @@ import PortfolioPanel from '../components/PortfolioPanel'
 import { useRepoContext } from '../context/RepoContext'
 import {
   buildKnowledge,
+  resetKnowledge,
   compareKnowledgeCommits,
   exportRepoFaq,
   fetchKnowledge,
@@ -42,6 +43,31 @@ const faqCategoryLabels: Record<string, string> = {
   troubleshooting: '排查',
 }
 
+interface BuildPhase {
+  key: string
+  label: string
+}
+
+const BUILD_PHASES: BuildPhase[] = [
+  { key: 'preparing', label: '准备' },
+  { key: 'git_sync', label: '同步仓库' },
+  { key: 'register', label: '注册' },
+  { key: 'analyze', label: '源码分析' },
+  { key: 'graphrag', label: '构建图谱' },
+  { key: 'update', label: '增量更新' },
+  { key: 'indexing', label: '索引元数据' },
+  { key: 'quality', label: '质量评分' },
+]
+
+function getPhaseStatus(phaseKey: string, currentStage: string, buildProgress: number): 'done' | 'active' | 'pending' {
+  const currentIdx = BUILD_PHASES.findIndex((p) => p.key === currentStage)
+  const phaseIdx = BUILD_PHASES.findIndex((p) => p.key === phaseKey)
+  if (phaseIdx < currentIdx || (buildProgress >= 100 && phaseIdx <= currentIdx)) return 'done'
+  if (phaseIdx === currentIdx && buildProgress > 0) return 'active'
+  if (currentIdx < 0 && buildProgress >= 100) return 'done'
+  return 'pending'
+}
+
 function toTreeData(nodes: KnowledgeNode[]): DataNode[] {
   return nodes.map((node) => ({
     key: node.key,
@@ -64,6 +90,7 @@ export default function Knowledge() {
   const [building, setBuilding] = useState(false)
   const [buildMessage, setBuildMessage] = useState('')
   const [buildProgress, setBuildProgress] = useState(0)
+  const [buildStage, setBuildStage] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [overview, setOverview] = useState<KnowledgeOverview | null>(null)
   const [selectedCommit, setSelectedCommit] = useState('')
@@ -185,6 +212,7 @@ export default function Knowledge() {
     setBuilding(true)
     setBuildMessage('正在启动构建…')
     setBuildProgress(0)
+    setBuildStage('')
     setError(null)
 
     let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -201,6 +229,7 @@ export default function Knowledge() {
         const knowledge = snapshot.knowledge
         setBuildMessage(knowledge.message || knowledge.status)
         setBuildProgress(knowledge.progress ?? 0)
+        setBuildStage(knowledge.stage ?? '')
         if (knowledge.status === 'done' || knowledge.status === 'error') {
           stopPolling()
           if (knowledge.status === 'error') {
@@ -225,6 +254,7 @@ export default function Knowledge() {
           const knowledge = snapshot.knowledge
           setBuildMessage(knowledge.message || '构建中…')
           setBuildProgress(knowledge.progress ?? 0)
+          setBuildStage(knowledge.stage ?? '')
           if (knowledge.status === 'done') {
             break
           }
@@ -252,6 +282,20 @@ export default function Knowledge() {
       setBuilding(false)
       setBuildMessage('')
       setBuildProgress(0)
+      setBuildStage('')
+    }
+  }
+
+  const handleReset = async () => {
+    if (!currentRepoId) return
+    setError(null)
+    try {
+      const { data } = await resetKnowledge({ path: { repoId: currentRepoId } })
+      message.success(data.message || '知识库已重置')
+      await loadOverview(currentRepoId)
+      await loadTasks(currentRepoId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '重置失败')
     }
   }
 
@@ -390,6 +434,9 @@ export default function Knowledge() {
                 : '构建中…'
               : '构建知识库'}
           </button>
+          <button type="button" className="gh-btn" disabled={building} onClick={handleReset}>
+            重置知识库
+          </button>
         </div>
       }
     >
@@ -398,19 +445,36 @@ export default function Knowledge() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message={buildMessage || '知识库正在后台构建'}
+          message={
+            <span>
+              <strong>{buildProgress > 0 ? `${buildProgress.toFixed(1)}%` : '启动中'}</strong>
+              {' · '}
+              {buildMessage || '知识库正在后台构建'}
+            </span>
+          }
           description={
             <div>
-              <div>
-                {buildProgress > 0
-                  ? `进度 ${buildProgress}% · 首次构建会执行 AST、代码图与 GraphRAG，后续同步使用增量更新`
-                  : '正在启动…'}
-              </div>
-              <div className="rp-progress">
+              <div className="rp-progress" style={{ marginBottom: 12 }}>
                 <div
                   className={`rp-progress-bar${buildProgress <= 0 ? ' indeterminate' : ''}`}
                   style={buildProgress > 0 ? { width: `${Math.min(buildProgress, 100)}%` } : undefined}
                 />
+              </div>
+              <div className="rp-build-phases">
+                {BUILD_PHASES.filter((p) => {
+                  // 全量构建不显示 update 阶段，增量构建不显示 register/analyze/graphrag
+                  if (['register', 'analyze', 'graphrag'].includes(p.key) && buildStage === 'update') return false
+                  if (p.key === 'update' && buildStage && !['update'].includes(buildStage) && buildProgress > 0 && buildStage !== '') return false
+                  return true
+                }).map((phase) => {
+                  const status = getPhaseStatus(phase.key, buildStage, buildProgress)
+                  return (
+                    <div key={phase.key} className={`rp-build-phase ${status}`}>
+                      <span className="rp-build-phase-dot" />
+                      <span className="rp-build-phase-label">{phase.label}</span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           }

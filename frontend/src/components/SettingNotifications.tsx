@@ -77,7 +77,7 @@ export default function SettingNotifications() {
 
   return (
     <SettingSection
-      title="邮件通知（Stub）"
+      title="邮件通知"
       footer={
         <>
           <button type="button" className="gh-btn gh-btn-primary" onClick={handleSave} disabled={disabled}>
@@ -94,7 +94,7 @@ export default function SettingNotifications() {
     >
       <SettingStatusRow
         label="投递模式"
-        value={<span className="gh-label">stub · 不真实投递 SMTP</span>}
+        value={<span className="gh-label">{settings.deliveryMode === 'smtp' ? 'smtp · 真实邮件投递' : 'stub · 请先在 application.yml 中配置 SMTP'}</span>}
       />
       <SettingStatusRow
         label="总开关"

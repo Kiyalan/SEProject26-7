@@ -24,16 +24,19 @@ public class GitActionService {
     private final KnowledgeBuildTaskService taskService;
     private final Executor knowledgeBuildExecutor;
     private final RepoAuthorizationService authorizationService;
+    private final NotificationService notificationService;
 
     public GitActionService(GitHubClient github, KnowledgeService knowledgeService,
                             KnowledgeBuildTaskService taskService,
                             @Qualifier("knowledgeBuildExecutor") Executor knowledgeBuildExecutor,
-                            RepoAuthorizationService authorizationService) {
+                            RepoAuthorizationService authorizationService,
+                            NotificationService notificationService) {
         this.github = github;
         this.knowledgeService = knowledgeService;
         this.taskService = taskService;
         this.knowledgeBuildExecutor = knowledgeBuildExecutor;
         this.authorizationService = authorizationService;
+        this.notificationService = notificationService;
     }
 
     public Map<String, Object> execute(String repoId, String token, String action, Map<String, String> params, String ownerLogin) {
@@ -42,7 +45,7 @@ public class GitActionService {
             case "sync_knowledge" -> enqueueKnowledgeSync(repoId, token, ownerLogin);
             case "create_branch" -> createBranch(repoId, token, params);
             case "commit_file" -> commitFile(repoId, token, params);
-            case "create_pr" -> createPullRequest(repoId, token, params);
+            case "create_pr" -> createPullRequest(repoId, token, params, ownerLogin);
             default -> throw new IllegalStateException("未知操作: " + action);
         };
     }
@@ -129,7 +132,7 @@ public class GitActionService {
         );
     }
 
-    private Map<String, Object> createPullRequest(String repoId, String token, Map<String, String> params) {
+    private Map<String, Object> createPullRequest(String repoId, String token, Map<String, String> params, String ownerLogin) {
         String head = params.getOrDefault("head", "");
         if (head.isBlank()) {
             throw new IllegalStateException("请提供源分支名");
@@ -137,17 +140,35 @@ public class GitActionService {
         JsonNode repo = github.get("/repositories/" + repoId, token);
         String fullName = repo.path("full_name").asText();
         String base = params.getOrDefault("base", repo.path("default_branch").asText("main"));
+        String title = params.getOrDefault("title", "RepoPilot PR");
+        String body = params.getOrDefault("body", "Created via RepoPilot.");
         JsonNode result = github.post("/repos/" + fullName + "/pulls", token, Map.of(
-                "title", params.getOrDefault("title", "RepoPilot PR"),
+                "title", title,
                 "head", head,
                 "base", base,
-                "body", params.getOrDefault("body", "Created via RepoPilot.")
+                "body", body
         ));
+        String prUrl = result.path("html_url").asText("");
+        int prNumber = result.path("number").asInt(0);
+
+        // 发送邮件通知
+        try {
+            String emailSubject = "PR #" + prNumber + " " + title + " 已创建";
+            String emailBody = "仓库: " + fullName + "\n"
+                    + "PR: #" + prNumber + " " + title + "\n"
+                    + "源分支: " + head + " → 目标分支: " + base + "\n"
+                    + "链接: " + prUrl + "\n\n"
+                    + "—— RepoPilot";
+            notificationService.notifyIfEnabled(ownerLogin, emailSubject, emailBody);
+        } catch (Exception ignored) {
+            // 邮件通知失败不影响主流程
+        }
+
         return Map.of(
                 "action", "create_pr",
-                "title", params.getOrDefault("title", "RepoPilot PR"),
-                "url", result.path("html_url").asText(""),
-                "number", result.path("number").asInt(0)
+                "title", title,
+                "url", prUrl,
+                "number", prNumber
         );
     }
 

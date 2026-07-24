@@ -40,6 +40,15 @@ repopilot:
     embedding-model: ${LLM_EMBEDDING_MODEL:openai/text-embedding-3-small}
     http-referer: ${LLM_HTTP_REFERER:http://localhost:5173}
     app-title: ${LLM_APP_TITLE:RepoPilot}
+  mail:
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    from: ${MAIL_FROM:RepoPilot <noreply@repopilot.dev>}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
   codewiki:
     base-url: ${CODEWIKI_BASE_URL:http://127.0.0.1:8001}
     host-repo-root: ${CODEWIKI_HOST_REPO_ROOT:./data/repos}

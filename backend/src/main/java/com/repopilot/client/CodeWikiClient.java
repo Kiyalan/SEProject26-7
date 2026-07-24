@@ -1,8 +1,9 @@
 package com.repopilot.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.repopilot.config.AppProperties;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -10,9 +11,9 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Map;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.repopilot.config.AppProperties;
 
 @Component
 public class CodeWikiClient {
@@ -52,18 +53,50 @@ public class CodeWikiClient {
     }
 
     public JsonNode awaitRun(String repoId, String runId) {
+        return awaitRun(repoId, runId, null);
+    }
+
+    public JsonNode awaitRun(String repoId, String runId,
+                             java.util.function.BiConsumer<Integer, Integer> progressCallback) {
         Instant deadline = Instant.now().plusSeconds(Math.max(1, properties.runTimeoutSeconds()));
+        Instant start = Instant.now();
+        int pollCount = 0;
+        int consecutiveFailures = 0;
         while (Instant.now().isBefore(deadline)) {
-            RunResponse current = run(repoId, runId);
-            String status = current.status() == null ? "" : current.status().toLowerCase();
-            if (status.equals("completed") || status.equals("complete") || status.equals("succeeded")
-                    || status.equals("success") || status.equals("ready") || status.equals("done")) {
-                return mapper.valueToTree(current);
+            try {
+                RunResponse current = run(repoId, runId);
+                consecutiveFailures = 0; // 成功后重置
+                String status = current.status() == null ? "" : current.status().toLowerCase();
+                if (status.equals("completed") || status.equals("complete") || status.equals("succeeded")
+                        || status.equals("success") || status.equals("ready") || status.equals("done")) {
+                    return mapper.valueToTree(current);
+                }
+                if (status.equals("failed") || status.equals("error") || status.equals("cancelled")) {
+                    throw new CodeWikiException("poll_run",
+                            "CodeWiki 分析失败: " + current.errorText(status),
+                            false, null);
+                }
+            } catch (CodeWikiException e) {
+                // 业务错误（分析失败）直接抛出，不重试
+                if (!e.retryable()) throw e;
+                consecutiveFailures++;
+                if (consecutiveFailures > 10) {
+                    throw new CodeWikiException("poll_run",
+                            "CodeWiki 连续 " + consecutiveFailures + " 次轮询失败，服务可能不可用", true, e);
+                }
+                if (progressCallback != null) {
+                    int elapsedSec = (int) java.time.Duration.between(start, Instant.now()).getSeconds();
+                    progressCallback.accept(pollCount, elapsedSec);
+                }
+                // 等待 CodeWiki 恢复，指数退避最多 30s
+                long waitSec = Math.min(30, (long) Math.pow(2, consecutiveFailures));
+                try { Thread.sleep(waitSec * 1000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+                continue;
             }
-            if (status.equals("failed") || status.equals("error") || status.equals("cancelled")) {
-                throw new CodeWikiException("poll_run",
-                        "CodeWiki 分析失败: " + current.errorText(status),
-                        false, null);
+            pollCount++;
+            if (progressCallback != null) {
+                int elapsedSec = (int) java.time.Duration.between(start, Instant.now()).getSeconds();
+                progressCallback.accept(pollCount, elapsedSec);
             }
             try {
                 Thread.sleep(Math.max(1, properties.runPollSeconds()) * 1000L);
@@ -149,11 +182,12 @@ public class CodeWikiClient {
     }
 
     /**
-     * 重试包装：连接断开/EOF 等瞬时错误最多重试 3 次，间隔 5-30 秒递增。
+     * 重试包装：连接断开/EOF 等瞬时错误最多重试 5 次，间隔 8-64 秒递增。
+     * CodeWiki 容器重启约需 20-40 秒，5 次重试最多等待 120 秒足够覆盖。
      */
     private <T> T executeWithRetry(java.util.function.Supplier<T> action, String operation) {
-        int maxRetries = 3;
-        long waitMs = 5000;
+        int maxRetries = 5;
+        long waitMs = 8000;
         RestClientException lastEx = null;
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             try {
@@ -164,8 +198,9 @@ public class CodeWikiClient {
                 if (!retryable || attempt == maxRetries) {
                     throw mapped(operation, ex);
                 }
+                long backoff = waitMs * (attempt + 1);
                 try {
-                    Thread.sleep(waitMs * (attempt + 1));
+                    Thread.sleep(backoff);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw mapped(operation, ex);

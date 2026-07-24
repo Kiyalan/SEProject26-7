@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,17 +29,19 @@ public class KnowledgeService {
     private final KnowledgeStore store;
     private final CodeWikiClient codeWiki;
     private final GitRepositoryService git;
+    private final JdbcTemplate jdbc;
     private final RepoAuthorizationService authorization;
     private final ProgressService progress;
     private final KnowledgeBuildTaskService tasks;
     private final ObjectMapper mapper;
 
     public KnowledgeService(KnowledgeStore store, CodeWikiClient codeWiki, GitRepositoryService git,
-                            RepoAuthorizationService authorization, ProgressService progress,
+                            JdbcTemplate jdbc, RepoAuthorizationService authorization, ProgressService progress,
                             KnowledgeBuildTaskService tasks, ObjectMapper mapper) {
         this.store = store;
         this.codeWiki = codeWiki;
         this.git = git;
+        this.jdbc = jdbc;
         this.authorization = authorization;
         this.progress = progress;
         this.tasks = tasks;
@@ -54,24 +57,37 @@ public class KnowledgeService {
     public Map<String, Object> buildKnowledge(String repoId, String ownerLogin, String token, boolean ignoredIndexEachCommit,
                                               int maxCommits, List<String> ignoredCommitShas, String taskId) {
         String progressKey = "knowledge:" + repoId;
-        progress.start(progressKey, 5, "准备同步仓库");
+        final int TOTAL = 20;
+        progress.start(progressKey, TOTAL, "准备同步仓库");
+        progress.setStage(progressKey, "preparing");
         tasks.start(taskId);
         try {
+            // ── 阶段1: 准备 (0→2) ──
+            setTaskAndProgress(taskId, progressKey, 1, TOTAL, "preparing", "验证仓库访问权限");
             JsonNode repo = authorization.requireAccess(repoId, token);
             String fullName = required(repo, "full_name");
             String branch = repo.path("default_branch").asText("main");
+
+            setTaskAndProgress(taskId, progressKey, 2, TOTAL, "preparing", "初始化索引记录");
             RepoIndex index = store.upsertIndex(repoId, fullName, branch, "indexing", ownerLogin);
             store.upsertSettings(repoId, false, maxCommits, "");
 
-            tasks.progress(taskId, 1, 5, "克隆或拉取默认分支");
-            progress.step(progressKey, "同步 Git 默认分支");
-            GitRepositoryService.SyncResult sync = git.sync(repoId, fullName, ownerLogin, token, branch);
+            // ── 阶段2: Git 同步 (2→4) ──
+            setTaskAndProgress(taskId, progressKey, 3, TOTAL, "git_sync", "正在准备 Git 仓库同步");
+            GitRepositoryService.SyncResult sync = git.sync(repoId, fullName, ownerLogin, token, branch,
+                    msg -> {
+                        progress.setDone(progressKey, 3, msg);
+                        progress.setStage(progressKey, "git_sync");
+                    });
             tasks.setCommits(taskId, sync.oldHead(), sync.head());
+
+            setTaskAndProgress(taskId, progressKey, 4, TOTAL, "git_sync", "Git 仓库同步完成");
 
             String codeWikiId = index.getCodeWikiRepoId() == null ? "" : index.getCodeWikiRepoId();
             boolean fullBuild = codeWikiId.isBlank();
             if (fullBuild) {
-                tasks.progress(taskId, 2, 5, "向 CodeWiki 注册本地仓库");
+                // ── 阶段3: 注册 CodeWiki (4→5) ──
+                setTaskAndProgress(taskId, progressKey, 5, TOTAL, "register", "向 CodeWiki 注册本地仓库");
                 CodeWikiClient.RepoResponse registered = codeWiki.register(sync.codeWikiPath(), fullName);
                 codeWikiId = registered == null ? "" : registered.resolvedId();
                 if (codeWikiId.isBlank()) {
@@ -81,23 +97,41 @@ public class KnowledgeService {
                 index.setCodeWikiRepoId(codeWikiId);
                 store.saveIndex(index);
 
-                tasks.progress(taskId, 3, 5, "CodeWiki 正在分析源码");
+                // ── 阶段4: 启动分析 (5→6) ──
+                setTaskAndProgress(taskId, progressKey, 6, TOTAL, "analyze", "正在提交 CodeWiki 源码分析任务");
                 CodeWikiClient.RunResponse run = codeWiki.analyze(codeWikiId);
                 if (run == null || run.resolvedId().isBlank()) {
                     throw new IllegalStateException("CodeWiki analyze 响应缺少 run_id");
                 }
-                codeWiki.awaitRun(codeWikiId, run.resolvedId());
-                tasks.progress(taskId, 4, 5, "构建 GraphRAG");
+
+                // ── 阶段5: 等待分析完成 (6→14，最耗时，占40%) ──
+                codeWiki.awaitRun(codeWikiId, run.resolvedId(),
+                        (pollCount, elapsedSec) -> {
+                            int subStep = Math.min(6 + pollCount / 2, 13);
+                            setTaskAndProgress(taskId, progressKey, subStep, TOTAL, "analyze",
+                                    "CodeWiki 正在分析源码 · 已等待 " + elapsedSec + " 秒");
+                        });
+
+                // ── 阶段6: 构建 GraphRAG (14→17) ──
+                setTaskAndProgress(taskId, progressKey, 15, TOTAL, "graphrag", "正在构建 GraphRAG 知识图谱");
                 codeWiki.buildGraph(codeWikiId);
+                setTaskAndProgress(taskId, progressKey, 17, TOTAL, "graphrag", "GraphRAG 知识图谱构建完成");
             } else {
-                tasks.progress(taskId, 3, 5, "增量更新 CodeWiki");
+                // ── 增量构建: 更新 CodeWiki (4→12，占40%) ──
+                setTaskAndProgress(taskId, progressKey, 6, TOTAL, "update", "正在增量更新 CodeWiki 索引");
                 codeWiki.update(codeWikiId);
+                setTaskAndProgress(taskId, progressKey, 12, TOTAL, "update", "增量更新完成");
             }
 
+            // ── 阶段7: 索引项目元数据 (17→19) ──
+            setTaskAndProgress(taskId, progressKey, 18, TOTAL, "indexing", "正在索引项目元数据");
             JsonNode graphStatus = codeWiki.graphStatus(codeWikiId);
             projectIndex(index, repo, sync.head(), graphStatus);
             store.upsertSettings(repoId, false, maxCommits, sync.head());
             tasks.projectCounts(taskId, graphStatus);
+
+            // ── 阶段8: 质量评分 (19→20) ──
+            setTaskAndProgress(taskId, progressKey, 19, TOTAL, "quality", "正在计算构建质量评分");
             progress.finish(progressKey, "知识库构建完成");
             Map<String, Object> quality = tasks.complete(taskId, repoId);
 
@@ -362,11 +396,16 @@ public class KnowledgeService {
         List<Map<String, Object>> pages = new ArrayList<>();
         int order = 0;
         for (JsonNode page : response.path("pages")) {
+            String title = page.path("title").asText(page.path("slug").asText("Untitled"));
+            String content = page.path("markdown").asText("");
+            if (isErrorWikiPage(title, content)) {
+                continue;
+            }
             Map<String, Object> mapped = new LinkedHashMap<>();
             mapped.put("id", firstText(page, "id", "slug"));
-            mapped.put("title", page.path("title").asText(page.path("slug").asText("Untitled")));
+            mapped.put("title", title);
             mapped.put("path", page.path("slug").asText(""));
-            mapped.put("content", page.path("markdown").asText(""));
+            mapped.put("content", content);
             mapped.put("order", order++);
             pages.add(mapped);
         }
@@ -408,6 +447,24 @@ public class KnowledgeService {
             }
         }
         return "";
+    }
+
+    private void setTaskAndProgress(String taskId, String progressKey, int done, int total,
+                                     String stage, String message) {
+        tasks.progress(taskId, done, total, message);
+        progress.setDone(progressKey, done, message);
+        progress.setStage(progressKey, stage);
+    }
+
+    private static boolean isErrorWikiPage(String title, String content) {
+        String lower = (title + " " + content).toLowerCase();
+        return lower.contains("agent loop")
+                || lower.contains("验证错误")
+                || lower.contains("llm 未返回")
+                || lower.contains("生成或验证失败")
+                || lower.contains("此页面未被推广")
+                || (title.contains("#") && content.length() < 200
+                    && (lower.contains("error") || lower.contains("failed") || lower.contains("失败")));
     }
 
     private void projectIndex(RepoIndex index, JsonNode repo, String head, JsonNode status) {
@@ -614,6 +671,38 @@ public class KnowledgeService {
     private static int bounded(int value, int minimum, int maximum) {
         return Math.min(Math.max(value, minimum), maximum);
     }
+
+    // ── 重置知识库 ───────────────────────────────────
+
+    public Map<String, Object> resetKnowledge(String repoId, String ownerLogin) {
+        store.findIndex(repoId).orElseThrow(() ->
+                new IllegalArgumentException("仓库 " + repoId + " 未注册"));
+
+        // 删除所有构建任务
+        jdbc.update("DELETE FROM knowledge_build_tasks WHERE repo_id = ?", repoId);
+
+        // 重置 repo_index
+        jdbc.update("""
+                UPDATE repo_index SET status = 'not_indexed', chunk_count = 0,
+                    file_count = 0, graph_node_count = 0, graph_edge_count = 0,
+                    graph_community_count = 0, codewiki_repo_id = NULL,
+                    summary = '', languages = NULL, indexed_at = NULL,
+                    commit_sha = NULL, active_commit_sha = NULL,
+                    quality_status = NULL, quality_score = 0, quality_report = NULL,
+                    last_task_id = NULL
+                WHERE repo_id = ?
+                """, repoId);
+
+        // 删除 repo_index_settings
+        jdbc.update("DELETE FROM repo_index_settings WHERE repo_id = ?", repoId);
+
+        // 清除 wiki 错误
+        wikiErrors.remove(repoId);
+
+        return Map.of("repoId", repoId, "status", "not_indexed", "message", "知识库已重置，可以重新构建");
+    }
+
+    // ── 以下为原有代码
 
     private Map<String, Object> emptyOverview(String repoId) {
         Map<String, Object> result = new LinkedHashMap<>();

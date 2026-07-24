@@ -2964,6 +2964,7 @@
           "status",
           "progress",
           "message",
+          "stage",
           "total",
           "done"
         ],
@@ -2982,6 +2983,10 @@
           },
           "message": {
             "type": "string"
+          },
+          "stage": {
+            "type": "string",
+            "description": "Current build stage identifier: preparing, git_sync, register, analyze, graphrag, update, indexing, quality"
           },
           "total": {
             "type": "integer"

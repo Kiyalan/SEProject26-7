@@ -151,6 +151,16 @@ public class KnowledgeController {
         return taskService.quality(repoId);
     }
 
+    @DeleteMapping
+    Map<String, Object> resetKnowledge(
+            @PathVariable String repoId,
+            @RequestHeader(value = "Authorization", required = false) String authorization
+    ) {
+        authorize(repoId, authorization);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
+        return knowledgeService.resetKnowledge(repoId, ownerLogin);
+    }
+
     @PostMapping("/search")
     Map<String, Object> searchKnowledge(
             @PathVariable String repoId,

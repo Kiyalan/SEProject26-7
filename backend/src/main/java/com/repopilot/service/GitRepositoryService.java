@@ -34,6 +34,11 @@ public class GitRepositoryService {
     }
 
     public SyncResult sync(String repoId, String fullName, String ownerLogin, String token, String branch) {
+        return sync(repoId, fullName, ownerLogin, token, branch, null);
+    }
+
+    public SyncResult sync(String repoId, String fullName, String ownerLogin, String token, String branch,
+                           java.util.function.Consumer<String> onProgress) {
         Object lock = syncLocks.computeIfAbsent(repoId + "/" + ownerLogin, k -> new Object());
         synchronized (lock) {
             Path path = hostPath(repoId, ownerLogin);
@@ -43,6 +48,7 @@ public class GitRepositoryService {
                 Files.createDirectories(path.getParent());
                 boolean cloned = !Files.isDirectory(path.resolve(".git"));
                 if (cloned) {
+                    if (onProgress != null) onProgress.accept("正在克隆 Git 仓库 (首次构建，耗时取决于仓库大小)");
                     try (Git ignored = Git.cloneRepository()
                             .setURI("https://github.com/" + fullName + ".git")
                             .setDirectory(path.toFile())
@@ -56,7 +62,11 @@ public class GitRepositoryService {
                 try (Git git = Git.open(path.toFile())) {
                     Repository repository = git.getRepository();
                     String oldHead = repository.resolve("HEAD") == null ? "" : repository.resolve("HEAD").name();
+                    if (!cloned) {
+                        if (onProgress != null) onProgress.accept("正在拉取远端更新");
+                    }
                     git.fetch().setRemote("origin").setCredentialsProvider(credentials).call();
+                    if (onProgress != null) onProgress.accept("正在检出默认分支");
                     ObjectId remoteHead = repository.resolve("refs/remotes/origin/" + branch);
                     if (remoteHead == null) throw new IllegalStateException("远端默认分支不存在: " + branch);
                     git.checkout().setName(branch).setCreateBranch(

@@ -21,10 +21,12 @@ public class NotificationService {
 
     private final JdbcTemplate jdbc;
     private final GitHubClient github;
+    private final MailService mailService;
 
-    public NotificationService(JdbcTemplate jdbc, GitHubClient github) {
+    public NotificationService(JdbcTemplate jdbc, GitHubClient github, MailService mailService) {
         this.jdbc = jdbc;
         this.github = github;
+        this.mailService = mailService;
     }
 
     public Map<String, Object> getSettings(String token) {
@@ -73,20 +75,50 @@ public class NotificationService {
         }
 
         String now = LocalDateTime.now(ZoneOffset.UTC).format(TS);
-        String message = "【Stub】已模拟向 " + email + " 发送测试通知（未真正投递 SMTP）";
+        String deliveryMode;
+        String message;
+
+        if (mailService.isConfigured()) {
+            mailService.send(email, "[RepoPilot] 测试邮件",
+                    "您好，" + login + "：\n\n这是一封来自 RepoPilot 的测试邮件。\n\n您的通知设置已生效，后续将在以下场景收到通知：\n"
+                            + "- 知识库构建完成\n- Issue 分析完成\n- Wiki 生成完成\n\n—— RepoPilot 团队");
+            deliveryMode = "smtp";
+            message = "已向 " + email + " 发送测试邮件";
+        } else {
+            deliveryMode = "stub";
+            message = "【Stub】已模拟向 " + email + " 发送测试通知（SMTP 未配置，请在 application.yml 中配置 repopilot.mail）";
+        }
+
         jdbc.update("""
                 UPDATE user_notification_settings
-                SET last_test_at = ?, last_test_message = ?, updated_at = ?
+                SET last_test_at = ?, last_test_message = ?, updated_at = ?, delivery_mode = ?
                 WHERE user_login = ?
-                """, now, message, now, login);
+                """, now, message, now, deliveryMode, login);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("success", true);
-        result.put("deliveryMode", "stub");
+        result.put("deliveryMode", deliveryMode);
         result.put("message", message);
         result.put("sentAt", now);
         result.put("email", email);
         return result;
+    }
+
+    /**
+     * Send notification if user has enabled it. No-op if not configured or disabled.
+     */
+    public void notifyIfEnabled(String login, String subject, String body) {
+        ensureRow(login);
+        Map<String, Object> settings = load(login);
+        if (!Boolean.TRUE.equals(settings.get("enabled"))) return;
+        String email = String.valueOf(settings.getOrDefault("email", "")).trim();
+        if (email.isBlank() || !EMAIL.matcher(email).matches()) return;
+        if (!mailService.isConfigured()) return;
+        try {
+            mailService.send(email, "[RepoPilot] " + subject, body);
+        } catch (Exception ignored) {
+            // 通知发送失败不影响主流程
+        }
     }
 
     private String resolveLogin(String token) {

@@ -1,10 +1,10 @@
 package com.repopilot.service;
 
-import org.springframework.stereotype.Service;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import org.springframework.stereotype.Service;
 
 @Service
 public class ProgressService {
@@ -50,6 +50,13 @@ public class ProgressService {
         state.message = message;
     }
 
+    public void setStage(String key, String stage) {
+        State state = states.get(key);
+        if (state != null) {
+            state.stage = stage;
+        }
+    }
+
     public void finish(String key, String message) {
         State state = states.get(key);
         if (state == null) {
@@ -77,6 +84,7 @@ public class ProgressService {
                     "status", "idle",
                     "progress", 0,
                     "message", "",
+                    "stage", "",
                     "total", 0,
                     "done", 0
             );
@@ -85,6 +93,7 @@ public class ProgressService {
         result.put("status", state.status);
         result.put("progress", Math.round(state.done * 1000.0 / state.total) / 10.0);
         result.put("message", state.message);
+        result.put("stage", state.stage != null ? state.stage : "");
         result.put("total", state.total);
         result.put("done", state.done);
         return result;
@@ -95,5 +104,6 @@ public class ProgressService {
         int total = 1;
         int done = 0;
         String message = "";
+        String stage = "";
     }
 }
