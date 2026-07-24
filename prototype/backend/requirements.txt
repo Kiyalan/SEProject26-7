@@ -1,0 +1,7 @@
+# 依赖已迁移到 pyproject.toml，请使用：
+#   npm run setup:backend
+# 或：
+#   cd backend && uv sync
+#
+# 如需导出 pip 格式：
+#   uv export --directory backend -o backend/requirements.txt
