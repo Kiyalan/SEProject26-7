@@ -35,6 +35,16 @@ public class CodeWikiClient {
         return get("/api/health", HealthResponse.class, "health");
     }
 
+    /** True when CodeWiki /api/health responds with status=ok. */
+    public boolean healthOk() {
+        try {
+            HealthResponse h = health();
+            return h != null && "ok".equalsIgnoreCase(h.status());
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     public RepoResponse register(String path, String name) {
         return post("/api/repos", new RegisterRepoRequest(path, name, "local"), RepoResponse.class, "register");
     }
@@ -44,8 +54,70 @@ public class CodeWikiClient {
     }
 
     public RunResponse analyze(String repoId) {
+        // Always disable LLM community naming during build — it is slow and not required for GraphRAG.
         return post(repo(repoId) + "/analyze", Map.of("name_communities", false),
                 RunResponse.class, "analyze");
+    }
+
+    public JsonNode listRuns(String repoId) {
+        return get(repo(repoId) + "/runs", JsonNode.class, "list_runs");
+    }
+
+    public void deleteRepo(String repoId) {
+        executeWithRetry(() -> {
+            http.delete().uri(repo(repoId)).retrieve().toBodilessEntity();
+            return Boolean.TRUE;
+        }, "delete_repo");
+    }
+
+    /**
+     * If CodeWiki still has a zombie "running" analysis (common after container restart),
+     * delete + re-register is the only reliable way to unlock POST /analyze.
+     */
+    public boolean hasZombieRunningRun(String repoId) {
+        try {
+            JsonNode runs = listRuns(repoId);
+            if (runs == null || !runs.isArray()) return false;
+            Instant now = Instant.now();
+            for (JsonNode run : runs) {
+                String status = run.path("status").asText("").toLowerCase();
+                if (!status.equals("running") && !status.equals("queued") && !status.equals("pending")) {
+                    continue;
+                }
+                Instant started = parseInstant(run.path("started_at").asText(""));
+                // Analyze workers die with the container; anything still "running"
+                // after a few minutes with an empty graph is almost always a zombie.
+                if (started == null) {
+                    return true;
+                }
+                long ageSec = Duration.between(started, now).getSeconds();
+                int progress = progressFromRunNode(run);
+                // >10 minutes still running: worker almost certainly dead after typical restarts
+                if (ageSec >= 600) {
+                    return true;
+                }
+                // Brand-new runs with zero progress for >90s after start are also stuck
+                if (ageSec >= 90 && progress <= 0) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (CodeWikiException ex) {
+            return isNotFoundMessage(ex.getMessage());
+        }
+    }
+
+    private static Instant parseInstant(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return Instant.parse(value);
+        } catch (Exception ignored) {
+            try {
+                return java.time.OffsetDateTime.parse(value).toInstant();
+            } catch (Exception ignoredAgain) {
+                return null;
+            }
+        }
     }
 
     public RunResponse run(String repoId, String runId) {
@@ -62,10 +134,12 @@ public class CodeWikiClient {
         Instant start = Instant.now();
         int pollCount = 0;
         int consecutiveFailures = 0;
+        int lastProgress = -1;
+        int unchangedPolls = 0;
         while (Instant.now().isBefore(deadline)) {
             try {
                 RunResponse current = run(repoId, runId);
-                consecutiveFailures = 0; // 成功后重置
+                consecutiveFailures = 0;
                 String status = current.status() == null ? "" : current.status().toLowerCase();
                 if (status.equals("completed") || status.equals("complete") || status.equals("succeeded")
                         || status.equals("success") || status.equals("ready") || status.equals("done")) {
@@ -76,26 +150,46 @@ public class CodeWikiClient {
                             "CodeWiki 分析失败: " + current.errorText(status),
                             false, null);
                 }
+                int progress = current.progressHint();
+                if (progress == lastProgress) {
+                    unchangedPolls++;
+                } else {
+                    unchangedPolls = 0;
+                    lastProgress = progress;
+                }
+                // ~2 minutes frozen progress (24 * 5s) → zombie worker
+                if (unchangedPolls >= 24 && Duration.between(start, Instant.now()).toSeconds() >= 120) {
+                    throw new CodeWikiException("poll_run",
+                            "CodeWiki 分析进度长时间无变化（容器可能已重启，后台任务已死），请重新构建",
+                            true, null);
+                }
             } catch (CodeWikiException e) {
-                // 业务错误（分析失败）直接抛出，不重试
                 if (!e.retryable()) throw e;
+                if (isNotFoundMessage(e.getMessage())) {
+                    throw new CodeWikiException("poll_run",
+                            "CodeWiki 分析任务已丢失（容器可能已重启），请重新构建知识库", true, e);
+                }
                 consecutiveFailures++;
-                if (consecutiveFailures > 10) {
+                if (consecutiveFailures > 15) {
                     throw new CodeWikiException("poll_run",
                             "CodeWiki 连续 " + consecutiveFailures + " 次轮询失败，服务可能不可用", true, e);
                 }
                 if (progressCallback != null) {
-                    int elapsedSec = (int) java.time.Duration.between(start, Instant.now()).getSeconds();
+                    int elapsedSec = (int) Duration.between(start, Instant.now()).getSeconds();
                     progressCallback.accept(pollCount, elapsedSec);
                 }
-                // 等待 CodeWiki 恢复，指数退避最多 30s
-                long waitSec = Math.min(30, (long) Math.pow(2, consecutiveFailures));
-                try { Thread.sleep(waitSec * 1000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+                long waitSec = Math.min(30, (long) Math.pow(2, Math.min(consecutiveFailures, 5)));
+                try {
+                    Thread.sleep(waitSec * 1000L);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
                 continue;
             }
             pollCount++;
             if (progressCallback != null) {
-                int elapsedSec = (int) java.time.Duration.between(start, Instant.now()).getSeconds();
+                int elapsedSec = (int) Duration.between(start, Instant.now()).getSeconds();
                 progressCallback.accept(pollCount, elapsedSec);
             }
             try {
@@ -106,6 +200,34 @@ public class CodeWikiClient {
             }
         }
         throw new CodeWikiException("poll_run", "CodeWiki 分析超时", true, null);
+    }
+
+    private static boolean isNotFoundMessage(String message) {
+        if (message == null) return false;
+        String lower = message.toLowerCase();
+        return lower.contains("404") || lower.contains("not found");
+    }
+
+    private static int progressFromRunNode(JsonNode run) {
+        if (run == null) return 0;
+        int total = run.path("scanned_count").asInt(0)
+                + run.path("parsed_file_count").asInt(0)
+                + run.path("node_count").asInt(0)
+                + run.path("chunk_count").asInt(0);
+        JsonNode stats = run.path("stats");
+        if (stats.isObject()) {
+            total += stats.path("scanned_count").asInt(0)
+                    + stats.path("parsed_file_count").asInt(0)
+                    + stats.path("node_count").asInt(0);
+            JsonNode progress = stats.path("progress");
+            if (progress.isObject()) {
+                total += progress.path("completed").asInt(0)
+                        + progress.path("scanned").asInt(0)
+                        + progress.path("parsed_files").asInt(0)
+                        + progress.path("symbols").asInt(0);
+            }
+        }
+        return total;
     }
 
     public JsonNode update(String repoId) {
@@ -291,6 +413,8 @@ public class CodeWikiClient {
         }
     }
     public record RunResponse(String run_id, String id, String repo_id, String status,
+                              Integer scanned_count, Integer parsed_file_count,
+                              Integer node_count, Integer chunk_count,
                               JsonNode stats, JsonNode error) {
         public String resolvedId() {
             return run_id != null && !run_id.isBlank() ? run_id : (id == null ? "" : id);
@@ -299,6 +423,28 @@ public class CodeWikiClient {
         public String errorText(String fallback) {
             if (error == null || error.isNull()) return fallback;
             return error.isTextual() ? error.asText(fallback) : error.toString();
+        }
+
+        public int progressHint() {
+            int total = nz(scanned_count) + nz(parsed_file_count) + nz(node_count) + nz(chunk_count);
+            if (stats != null && stats.isObject()) {
+                total += stats.path("scanned_count").asInt(0)
+                        + stats.path("parsed_file_count").asInt(0)
+                        + stats.path("node_count").asInt(0);
+                JsonNode progress = stats.path("progress");
+                if (progress.isObject()) {
+                    total += progress.path("completed").asInt(0)
+                            + progress.path("scanned").asInt(0)
+                            + progress.path("parsed_files").asInt(0)
+                            + progress.path("symbols").asInt(0)
+                            + progress.path("nodes").asInt(0);
+                }
+            }
+            return total;
+        }
+
+        private static int nz(Integer value) {
+            return value == null ? 0 : Math.max(0, value);
         }
     }
     public record UpdateRequest(boolean refresh_chunks, boolean name_communities, boolean regenerate_wiki) {}

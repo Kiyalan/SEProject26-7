@@ -4,7 +4,35 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-# 加载 backend\.env 中的环境变量
+function Stop-ListenPort {
+    param([int]$Port)
+
+    $conns = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    foreach ($c in $conns) {
+        $procId = $c.OwningProcess
+        if (-not $procId -or $procId -eq 0) {
+            continue
+        }
+        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        if (-not $proc) {
+            continue
+        }
+        Write-Host "Stopping $($proc.ProcessName) (PID $procId) on port $Port..." -ForegroundColor Yellow
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-CodeWikiHealthy {
+    try {
+        $health = Invoke-RestMethod -Uri "http://127.0.0.1:8001/api/health" -TimeoutSec 3
+        return ($health.status -eq "ok")
+    }
+    catch {
+        return $false
+    }
+}
+
+# Load env vars from backend\.env
 $envFile = Join-Path $PSScriptRoot "backend\.env"
 if (Test-Path $envFile) {
     Get-Content $envFile | ForEach-Object {
@@ -21,30 +49,38 @@ if (Test-Path $envFile) {
     Write-Host "Loaded environment from backend\.env" -ForegroundColor DarkGray
 }
 
-Write-Host "Starting postgres + codewiki..." -ForegroundColor Cyan
-docker compose up -d postgres codewiki
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Docker Compose failed. Install/start Docker Desktop, then retry." -ForegroundColor Red
-    exit 1
+# Stop leftover backend/frontend to free ports
+Write-Host "Stopping previous backend/frontend (ports 8000 / 5173)..." -ForegroundColor Cyan
+Stop-ListenPort -Port 8000
+Stop-ListenPort -Port 5173
+Start-Sleep -Seconds 1
+
+# Skip docker recreate when CodeWiki is already healthy (avoids killing in-flight analyze)
+$codeWikiOk = Test-CodeWikiHealthy
+if ($codeWikiOk) {
+    Write-Host "CodeWiki already healthy - skip docker recreate." -ForegroundColor Green
 }
-
-$deadline = (Get-Date).AddMinutes(3)
-do {
-    try {
-        $health = Invoke-RestMethod -Uri "http://127.0.0.1:8001/api/health" -TimeoutSec 2
-        if ($health.status -eq "ok") { break }
-    } catch {
-        Start-Sleep -Seconds 3
+else {
+    Write-Host "Starting postgres + codewiki..." -ForegroundColor Cyan
+    docker compose up -d postgres codewiki
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Docker Compose failed. Install/start Docker Desktop, then retry." -ForegroundColor Red
+        exit 1
     }
-} while ((Get-Date) -lt $deadline)
 
-try {
-    $health = Invoke-RestMethod -Uri "http://127.0.0.1:8001/api/health" -TimeoutSec 3
-    if ($health.status -ne "ok") { throw "unexpected status" }
+    $deadline = (Get-Date).AddMinutes(3)
+    do {
+        if (Test-CodeWikiHealthy) {
+            break
+        }
+        Start-Sleep -Seconds 3
+    } while ((Get-Date) -lt $deadline)
+
+    if (-not (Test-CodeWikiHealthy)) {
+        Write-Host "CodeWiki did not become healthy in time. Check: docker compose logs -f codewiki" -ForegroundColor Red
+        exit 1
+    }
     Write-Host "CodeWiki is healthy." -ForegroundColor Green
-} catch {
-    Write-Host "CodeWiki did not become healthy in time. Check: docker compose logs -f codewiki" -ForegroundColor Red
-    exit 1
 }
 
 New-Item -ItemType Directory -Force -Path "backend\data\repos" | Out-Null
@@ -59,3 +95,5 @@ Write-Host ""
 Write-Host "Frontend: http://localhost:5173" -ForegroundColor Green
 Write-Host "Backend:  http://localhost:8000" -ForegroundColor Green
 Write-Host "CodeWiki: http://127.0.0.1:8001" -ForegroundColor Green
+Write-Host ""
+Write-Host "Note: during knowledge build, do NOT re-run this script or docker compose up." -ForegroundColor DarkYellow

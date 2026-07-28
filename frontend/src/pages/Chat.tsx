@@ -65,7 +65,12 @@ export default function Chat() {
       return
     }
     fetchKnowledge({ path: { repoId: currentRepoId } })
-      .then(({ data }) => setKnowledgeReady(data.status === 'ready' && data.chunkCount > 0))
+      .then(({ data }) => {
+        const chunks = Number(data.chunkCount || 0)
+        const nodes = Number((data as { graphStatus?: { nodeCount?: number } }).graphStatus?.nodeCount || 0)
+        // Chunks power retrieve; nodes alone still mean the graph build finished.
+        setKnowledgeReady(data.status === 'ready' && (chunks > 0 || nodes > 0))
+      })
       .catch(() => setKnowledgeReady(false))
   }, [currentRepoId])
 

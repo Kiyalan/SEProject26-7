@@ -39,6 +39,28 @@ CODEWIKI_INCLUDE_EMBEDDINGS=true
 
 `CODEWIKI_INCLUDE_EMBEDDINGS` 默认 `false`。未配 embedding 时 GraphRAG 仍可用 AST 图 + 全文 + 图扩展。
 
+### CodeWiki 构建稳定性（大仓库）
+
+若构建过程中 CodeWiki「隔一段时间就停」或扫到一定文件后卡住，常见原因是：
+
+1. **健康检查过严**：分析占满 CPU 时 `/api/health` 短暂无响应 → 容器被判 unhealthy / 重启。  
+2. **僵尸分析任务**：容器重启后 Postgres 里仍留着 `status=running` 的 run，之后每次 `analyze` 都会复用它，进度永远不动。
+
+本仓库已做的缓解：
+
+- 放宽 `docker-compose.yml` / Dockerfile 健康检查（60s 间隔、30s 超时、更长 start_period）
+- `services/codewiki/entrypoint.py` 启动时清理陈旧 `running` 任务，并附加大目录排除规则
+- 后端构建前检测僵尸 run，必要时删除并重新注册后全量分析
+- 默认 **关闭 embedding**（`CODEWIKI_INCLUDE_EMBEDDINGS=false`），避免扫文件后期被向量 API 拖死
+
+重新部署 CodeWiki：
+
+```powershell
+docker compose up -d --build postgres codewiki
+```
+
+Docker Desktop 建议给 WSL2 至少 **4GB 内存**；构建大仓时不要手动 `restart` codewiki。
+
 ### 2. 启动后端
 
 ```powershell

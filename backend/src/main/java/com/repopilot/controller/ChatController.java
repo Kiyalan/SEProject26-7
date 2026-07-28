@@ -43,7 +43,7 @@ public class ChatController {
         if (message.length() > 2000) {
             throw new IllegalArgumentException("message 最长 2000 字符");
         }
-        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message, ownerLogin);
+        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message, ownerLogin, token);
         return llmService.chat(repoId, message, query.contexts(), query.intent());
     }
 
@@ -63,7 +63,7 @@ public class ChatController {
         if (message.length() > 2000) {
             throw new IllegalArgumentException("message 最长 2000 字符");
         }
-        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message, ownerLogin);
+        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message, ownerLogin, token);
         String questionType = KnowledgeUtils.classifyQuestion(message);
         return llmService.streamChat(repoId, message, questionType, query.intent(), query.contexts());
     }

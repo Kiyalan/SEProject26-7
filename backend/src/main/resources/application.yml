@@ -36,7 +36,7 @@ repopilot:
   llm:
     api-key: ${LLM_API_KEY:}
     base-url: ${LLM_BASE_URL:https://openrouter.ai/api/v1}
-    model: ${LLM_MODEL:tencent/hy3:free}
+    model: ${LLM_MODEL:openai/gpt-oss-20b:free}
     embedding-model: ${LLM_EMBEDDING_MODEL:openai/text-embedding-3-small}
     http-referer: ${LLM_HTTP_REFERER:http://localhost:5173}
     app-title: ${LLM_APP_TITLE:RepoPilot}
@@ -55,8 +55,10 @@ repopilot:
     container-repo-root: ${CODEWIKI_CONTAINER_REPO_ROOT:/workspace/repositories/SEProject26-7/backend/data/repos}
     include-embeddings: ${CODEWIKI_INCLUDE_EMBEDDINGS:false}
     connect-timeout-seconds: ${CODEWIKI_CONNECT_TIMEOUT_SECONDS:15}
-    read-timeout-seconds: ${CODEWIKI_READ_TIMEOUT_SECONDS:3600}
+    # GraphRAG / wiki can take long; keep HTTP read timeout aligned with run timeout
+    read-timeout-seconds: ${CODEWIKI_READ_TIMEOUT_SECONDS:7200}
     run-poll-seconds: ${CODEWIKI_RUN_POLL_SECONDS:5}
+    # Large repos often need >1h (AST parse + persist). Default 2h.
     run-timeout-seconds: ${CODEWIKI_RUN_TIMEOUT_SECONDS:7200}
   admin:
     username: ${ADMIN_USERNAME:admin}

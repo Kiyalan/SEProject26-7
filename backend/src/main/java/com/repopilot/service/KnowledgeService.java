@@ -1,5 +1,6 @@
 package com.repopilot.service;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -83,45 +84,92 @@ public class KnowledgeService {
 
             setTaskAndProgress(taskId, progressKey, 4, TOTAL, "git_sync", "Git 仓库同步完成");
 
-            String codeWikiId = index.getCodeWikiRepoId() == null ? "" : index.getCodeWikiRepoId();
-            boolean fullBuild = codeWikiId.isBlank();
-            if (fullBuild) {
-                // ── 阶段3: 注册 CodeWiki (4→5) ──
+            String codeWikiId = index.getCodeWikiRepoId() == null ? "" : index.getCodeWikiRepoId().trim();
+            if (!codeWikiId.isBlank() && !codeWikiRepoAlive(codeWikiId)) {
+                String remapped = findRegisteredRepo(fullName, sync.codeWikiPath());
+                if (remapped.isBlank()) {
+                    remapped = findRegisteredRepoByLocalRepoId(repoId);
+                }
+                if (!remapped.isBlank()) {
+                    codeWikiId = remapped;
+                    index.setCodeWikiRepoId(codeWikiId);
+                    store.saveIndex(index);
+                } else {
+                    codeWikiId = "";
+                    index.setCodeWikiRepoId("");
+                    store.saveIndex(index);
+                }
+            }
+
+            boolean needRegister = codeWikiId.isBlank();
+            boolean needAnalyze = needRegister || !codeWikiGraphHasData(codeWikiId);
+            // Zombie running analyze blocks new analyze forever after CodeWiki restarts
+            if (!needRegister && codeWiki.hasZombieRunningRun(codeWikiId)) {
+                setTaskAndProgress(taskId, progressKey, 5, TOTAL, "register",
+                        "检测到 CodeWiki 僵尸分析任务，正在重置仓库注册");
+                try {
+                    codeWiki.deleteRepo(codeWikiId);
+                } catch (Exception ignored) {
+                    // delete best-effort
+                }
+                codeWikiId = "";
+                index.setCodeWikiRepoId("");
+                store.saveIndex(index);
+                needRegister = true;
+                needAnalyze = true;
+            }
+            boolean fullBuild = needAnalyze;
+
+            if (needRegister) {
                 setTaskAndProgress(taskId, progressKey, 5, TOTAL, "register", "向 CodeWiki 注册本地仓库");
                 CodeWikiClient.RepoResponse registered = codeWiki.register(sync.codeWikiPath(), fullName);
                 codeWikiId = registered == null ? "" : registered.resolvedId();
                 if (codeWikiId.isBlank()) {
                     codeWikiId = findRegisteredRepo(fullName, sync.codeWikiPath());
                 }
+                if (codeWikiId.isBlank()) {
+                    codeWikiId = findRegisteredRepoByLocalRepoId(repoId);
+                }
                 if (codeWikiId.isBlank()) throw new IllegalStateException("CodeWiki 注册响应缺少仓库 id");
                 index.setCodeWikiRepoId(codeWikiId);
                 store.saveIndex(index);
-
-                // ── 阶段4: 启动分析 (5→6) ──
-                setTaskAndProgress(taskId, progressKey, 6, TOTAL, "analyze", "正在提交 CodeWiki 源码分析任务");
-                CodeWikiClient.RunResponse run = codeWiki.analyze(codeWikiId);
-                if (run == null || run.resolvedId().isBlank()) {
-                    throw new IllegalStateException("CodeWiki analyze 响应缺少 run_id");
-                }
-
-                // ── 阶段5: 等待分析完成 (6→14，最耗时，占40%) ──
-                codeWiki.awaitRun(codeWikiId, run.resolvedId(),
-                        (pollCount, elapsedSec) -> {
-                            int subStep = Math.min(6 + pollCount / 2, 13);
-                            setTaskAndProgress(taskId, progressKey, subStep, TOTAL, "analyze",
-                                    "CodeWiki 正在分析源码 · 已等待 " + elapsedSec + " 秒");
-                        });
-
-                // ── 阶段6: 构建 GraphRAG (14→17) ──
-                setTaskAndProgress(taskId, progressKey, 15, TOTAL, "graphrag", "正在构建 GraphRAG 知识图谱");
-                codeWiki.buildGraph(codeWikiId);
-                setTaskAndProgress(taskId, progressKey, 17, TOTAL, "graphrag", "GraphRAG 知识图谱构建完成");
-            } else {
-                // ── 增量构建: 更新 CodeWiki (4→12，占40%) ──
-                setTaskAndProgress(taskId, progressKey, 6, TOTAL, "update", "正在增量更新 CodeWiki 索引");
-                codeWiki.update(codeWikiId);
-                setTaskAndProgress(taskId, progressKey, 12, TOTAL, "update", "增量更新完成");
             }
+
+            if (needAnalyze) {
+                runFullAnalyzeAndGraph(taskId, progressKey, TOTAL, codeWikiId, needRegister);
+            } else {
+                setTaskAndProgress(taskId, progressKey, 6, TOTAL, "update", "正在增量更新 CodeWiki 索引");
+                try {
+                    codeWiki.update(codeWikiId);
+                    setTaskAndProgress(taskId, progressKey, 12, TOTAL, "update", "增量更新完成");
+                } catch (CodeWikiException ex) {
+                    if (!isMissingCodeWikiRepo(ex) && !ex.retryable()) {
+                        throw ex;
+                    }
+                    setTaskAndProgress(taskId, progressKey, 5, TOTAL, "register",
+                            "增量更新失败，改为全量重建");
+                    try {
+                        codeWiki.deleteRepo(codeWikiId);
+                    } catch (Exception ignored) {
+                    }
+                    CodeWikiClient.RepoResponse registered = codeWiki.register(sync.codeWikiPath(), fullName);
+                    codeWikiId = registered == null ? "" : registered.resolvedId();
+                    if (codeWikiId.isBlank()) {
+                        codeWikiId = findRegisteredRepo(fullName, sync.codeWikiPath());
+                    }
+                    if (codeWikiId.isBlank()) {
+                        codeWikiId = findRegisteredRepoByLocalRepoId(repoId);
+                    }
+                    if (codeWikiId.isBlank()) throw new IllegalStateException("CodeWiki 注册响应缺少仓库 id");
+                    index.setCodeWikiRepoId(codeWikiId);
+                    store.saveIndex(index);
+                    runFullAnalyzeAndGraph(taskId, progressKey, TOTAL, codeWikiId, true);
+                    fullBuild = true;
+                }
+            }
+
+            // Graph nodes without chunks ⇒ Q&A retrieve has nothing usable. Ensure GraphRAG build.
+            ensureGraphChunks(taskId, progressKey, TOTAL, codeWikiId);
 
             // ── 阶段7: 索引项目元数据 (17→19) ──
             setTaskAndProgress(taskId, progressKey, 18, TOTAL, "indexing", "正在索引项目元数据");
@@ -165,6 +213,8 @@ public class KnowledgeService {
     public Map<String, Object> getOverview(String repoId, String ownerLogin, String commitSha) {
         RepoIndex index = store.findIndex(repoId).orElse(null);
         if (index == null) return emptyOverview(repoId);
+        // Heal stale H2 counters from live CodeWiki (common after analyze-only / skipped GraphRAG).
+        refreshIndexCountsFromCodeWiki(index);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("repoId", repoId);
         result.put("fullName", safe(index.getFullName()));
@@ -253,6 +303,12 @@ public class KnowledgeService {
 
     public List<Map<String, Object>> commitHistoryContexts(String repoId, String ownerLogin, int limit) {
         return git.history(repoId, ownerLogin, limit);
+    }
+
+    public List<Map<String, Object>> branchContexts(String repoId, String ownerLogin) {
+        RepoIndex index = store.findIndex(repoId).orElse(null);
+        String defaultBranch = index == null ? "main" : safe(index.getDefaultBranch(), "main");
+        return git.listBranches(repoId, ownerLogin, defaultBranch);
     }
 
     public Map<String, Object> repositoryOverviewContext(String repoId, String ownerLogin) {
@@ -424,7 +480,87 @@ public class KnowledgeService {
     }
 
     private String codeWikiId(String repoId) {
-        return requireReadyIndex(repoId).getCodeWikiRepoId();
+        RepoIndex index = requireReadyIndex(repoId);
+        String id = index.getCodeWikiRepoId() == null ? "" : index.getCodeWikiRepoId().trim();
+        if (!id.isBlank() && codeWikiRepoAlive(id)) {
+            return id;
+        }
+        String remapped = findRegisteredRepo(safe(index.getFullName()), "");
+        if (remapped.isBlank()) {
+            remapped = findRegisteredRepoByLocalRepoId(repoId);
+        }
+        if (!remapped.isBlank()) {
+            index.setCodeWikiRepoId(remapped);
+            store.saveIndex(index);
+            return remapped;
+        }
+        throw new IllegalStateException(
+                "CodeWiki 仓库记录已失效（可能因 Docker 重建），请在知识库页点击「重新构建」");
+    }
+
+    private void runFullAnalyzeAndGraph(String taskId, String progressKey, int total,
+                                        String codeWikiId, boolean firstAttempt) {
+        setTaskAndProgress(taskId, progressKey, 6, total, "analyze",
+                firstAttempt ? "正在提交 CodeWiki 源码分析任务" : "CodeWiki 图谱为空或任务中断，重新分析源码");
+        try {
+            CodeWikiClient.RunResponse run = codeWiki.analyze(codeWikiId);
+            if (run == null || run.resolvedId().isBlank()) {
+                throw new IllegalStateException("CodeWiki analyze 响应缺少 run_id");
+            }
+            codeWiki.awaitRun(codeWikiId, run.resolvedId(),
+                    (pollCount, elapsedSec) -> {
+                        int subStep = Math.min(6 + pollCount / 2, 13);
+                        setTaskAndProgress(taskId, progressKey, subStep, total, "analyze",
+                                "CodeWiki 正在分析源码 · 已等待 " + elapsedSec + " 秒");
+                    });
+        } catch (CodeWikiException ex) {
+            // Container recreate (e.g. start-dev / compose up) kills in-process analyze workers.
+            // Wait for CodeWiki to come back and retry once instead of failing the UI at ~30%.
+            if (firstAttempt && isWorkerLostAfterRestart(ex)) {
+                setTaskAndProgress(taskId, progressKey, 6, total, "analyze",
+                        "检测到 CodeWiki 容器重启，等待服务恢复后自动重试分析");
+                waitForCodeWikiReady(90);
+                runFullAnalyzeAndGraph(taskId, progressKey, total, codeWikiId, false);
+                return;
+            }
+            throw ex;
+        }
+        setTaskAndProgress(taskId, progressKey, 15, total, "graphrag",
+                "正在构建 GraphRAG 知识图谱（默认关闭 embedding）");
+        codeWiki.buildGraph(codeWikiId);
+        setTaskAndProgress(taskId, progressKey, 17, total, "graphrag", "GraphRAG 知识图谱构建完成");
+    }
+
+    private static boolean isWorkerLostAfterRestart(Throwable ex) {
+        String message = rootMessage(ex).toLowerCase();
+        return message.contains("worker lost")
+                || message.contains("worker dead")
+                || message.contains("cleared stale")
+                || message.contains("sigsegv")
+                || message.contains("exit 139")
+                || message.contains("analyze worker")
+                || message.contains("容器可能已重启")
+                || message.contains("进度长时间无变化")
+                || message.contains("分析任务已丢失");
+    }
+
+    private void waitForCodeWikiReady(int timeoutSeconds) {
+        Instant deadline = Instant.now().plusSeconds(Math.max(5, timeoutSeconds));
+        while (Instant.now().isBefore(deadline)) {
+            try {
+                if (codeWiki.healthOk()) {
+                    return;
+                }
+            } catch (Exception ignored) {
+                // keep waiting
+            }
+            try {
+                Thread.sleep(3000L);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 
     private RepoIndex requireReadyIndex(String repoId) {
@@ -436,17 +572,150 @@ public class KnowledgeService {
         return index;
     }
 
-    private String findRegisteredRepo(String fullName, String path) {
-        JsonNode repos = codeWiki.listRepos();
-        JsonNode rows = repos != null && repos.isArray() ? repos : repos == null ? null : repos.path("items");
-        if (rows != null && rows.isArray()) {
-            for (JsonNode row : rows) {
-                if (fullName.equals(row.path("name").asText()) || path.equals(row.path("path").asText())) {
-                    return row.path("id").asText(row.path("repo_id").asText(""));
+    private boolean codeWikiRepoAlive(String codeWikiId) {
+        try {
+            codeWiki.graphStatus(codeWikiId);
+            return true;
+        } catch (CodeWikiException ex) {
+            return !isMissingCodeWikiRepo(ex);
+        } catch (Exception ex) {
+            String message = rootMessage(ex).toLowerCase();
+            return !(message.contains("not found") || message.contains("404"));
+        }
+    }
+
+    private boolean codeWikiGraphHasData(String codeWikiId) {
+        try {
+            JsonNode status = codeWiki.graphStatus(codeWikiId);
+            return status.path("chunk_count").asInt(0) > 0
+                    || status.path("node_count").asInt(0) > 0
+                    || status.path("file_count").asInt(0) > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /** If graph has nodes but no chunks, run GraphRAG build so Q&A retrieve can work. */
+    private void ensureGraphChunks(String taskId, String progressKey, int total, String codeWikiId) {
+        try {
+            JsonNode status = codeWiki.graphStatus(codeWikiId);
+            int chunks = firstInt(status, "chunk_count", "chunks");
+            int nodes = firstInt(status, "node_count", "nodes");
+            if (chunks > 0 || nodes <= 0) {
+                return;
+            }
+            setTaskAndProgress(taskId, progressKey, 15, total, "graphrag",
+                    "图谱有节点但无检索片段，正在补建 GraphRAG");
+            codeWiki.buildGraph(codeWikiId);
+            setTaskAndProgress(taskId, progressKey, 17, total, "graphrag", "GraphRAG 补建完成");
+        } catch (Exception ex) {
+            // Keep going — projectIndex will still persist whatever counts are available.
+            setTaskAndProgress(taskId, progressKey, 17, total, "graphrag",
+                    "GraphRAG 补建失败: " + rootMessage(ex));
+        }
+    }
+
+    /**
+     * Sync H2 counters from live CodeWiki graph/status so the UI / Chat readiness
+     * do not stay stuck at chunkCount=0 after a partial build.
+     */
+    private void refreshIndexCountsFromCodeWiki(RepoIndex index) {
+        String codeWikiId = index.getCodeWikiRepoId() == null ? "" : index.getCodeWikiRepoId().trim();
+        if (codeWikiId.isBlank()) return;
+        try {
+            JsonNode status = codeWiki.graphStatus(codeWikiId);
+            int chunks = firstInt(status, "chunk_count", "chunks");
+            int nodes = firstInt(status, "node_count", "nodes");
+            int edges = firstInt(status, "edge_count", "edges");
+            int communities = firstInt(status, "community_count", "communities");
+            int files = firstInt(status, "file_count", "files", "documents");
+            boolean changed = false;
+            if (chunks > value(index.getChunkCount())) {
+                index.setChunkCount(chunks);
+                changed = true;
+            }
+            if (nodes > value(index.getGraphNodeCount())) {
+                index.setGraphNodeCount(nodes);
+                changed = true;
+            }
+            if (edges > value(index.getGraphEdgeCount())) {
+                index.setGraphEdgeCount(edges);
+                changed = true;
+            }
+            if (communities > value(index.getGraphCommunityCount())) {
+                index.setGraphCommunityCount(communities);
+                changed = true;
+            }
+            if (files > value(index.getFileCount())) {
+                index.setFileCount(files);
+                changed = true;
+            }
+            if (status.path("languages").isObject()) {
+                String languages = status.path("languages").toString();
+                if (!languages.equals(safe(index.getLanguages()))) {
+                    index.setLanguages(languages);
+                    changed = true;
                 }
+            }
+            // Promote to ready when CodeWiki already has retrievable graph data.
+            if ((chunks > 0 || nodes > 0) && !"ready".equals(safe(index.getStatus()))) {
+                index.setStatus("ready");
+                if (safe(index.getIndexedAt()).isBlank()) {
+                    index.setIndexedAt(LocalDateTime.now(ZoneOffset.UTC).format(TS));
+                }
+                changed = true;
+            }
+            if (changed) {
+                store.saveIndex(index);
+            }
+        } catch (Exception ignored) {
+            // Keep cached H2 values when CodeWiki is temporarily unreachable.
+        }
+    }
+
+    private static boolean isMissingCodeWikiRepo(Throwable ex) {
+        String message = rootMessage(ex).toLowerCase();
+        return message.contains("not found") || message.contains("404") || message.contains("repository not found");
+    }
+
+    private String findRegisteredRepo(String fullName, String path) {
+        JsonNode rows = repoRows();
+        if (rows == null) return "";
+        for (JsonNode row : rows) {
+            String name = row.path("name").asText("");
+            String rowPath = row.path("path").asText("");
+            if ((!fullName.isBlank() && fullName.equals(name))
+                    || (!path.isBlank() && path.equals(rowPath))) {
+                return row.path("id").asText(row.path("repo_id").asText(""));
             }
         }
         return "";
+    }
+
+    private String findRegisteredRepoByLocalRepoId(String repoId) {
+        if (repoId == null || repoId.isBlank()) return "";
+        JsonNode rows = repoRows();
+        if (rows == null) return "";
+        String suffix = "/" + repoId;
+        String sole = "";
+        int count = 0;
+        for (JsonNode row : rows) {
+            count++;
+            String rowPath = row.path("path").asText("");
+            if (rowPath.endsWith(suffix) || rowPath.endsWith(repoId)) {
+                return row.path("id").asText(row.path("repo_id").asText(""));
+            }
+            sole = row.path("id").asText(row.path("repo_id").asText(""));
+        }
+        return count == 1 ? sole : "";
+    }
+
+    private JsonNode repoRows() {
+        JsonNode repos = codeWiki.listRepos();
+        if (repos == null) return null;
+        if (repos.isArray()) return repos;
+        JsonNode items = repos.path("items");
+        return items.isArray() ? items : null;
     }
 
     private void setTaskAndProgress(String taskId, String progressKey, int done, int total,
@@ -473,7 +742,8 @@ public class KnowledgeService {
         index.setActiveCommitSha(head);
         index.setCommitSha(shortSha(head));
         index.setFileCount(firstInt(status, "file_count", "files", "documents"));
-        index.setChunkCount(firstInt(status, "chunk_count", "chunks", "nodes"));
+        // Do not fall back to node_count for chunks — that hid "0 chunks" bugs.
+        index.setChunkCount(firstInt(status, "chunk_count", "chunks"));
         index.setGraphNodeCount(firstInt(status, "node_count", "nodes"));
         index.setGraphEdgeCount(firstInt(status, "edge_count", "edges"));
         index.setGraphCommunityCount(firstInt(status, "community_count", "communities"));
@@ -675,31 +945,76 @@ public class KnowledgeService {
     // ── 重置知识库 ───────────────────────────────────
 
     public Map<String, Object> resetKnowledge(String repoId, String ownerLogin) {
-        store.findIndex(repoId).orElseThrow(() ->
+        RepoIndex index = store.findIndex(repoId).orElseThrow(() ->
                 new IllegalArgumentException("仓库 " + repoId + " 未注册"));
 
-        // 删除所有构建任务
+        String codeWikiId = index.getCodeWikiRepoId() == null ? "" : index.getCodeWikiRepoId().trim();
+        boolean codeWikiDeleted = false;
+        String codeWikiWarning = "";
+
+        // 1) Delete remote CodeWiki repo (graph / chunks / wiki). Without this,
+        //    rebuild would reuse stale graph and look like "reset did nothing".
+        if (!codeWikiId.isBlank()) {
+            try {
+                codeWiki.deleteRepo(codeWikiId);
+                codeWikiDeleted = true;
+            } catch (Exception ex) {
+                codeWikiWarning = rootMessage(ex);
+                // Also try path-based rematch in case local id is stale.
+                try {
+                    String remapped = findRegisteredRepo(safe(index.getFullName()), "");
+                    if (remapped.isBlank()) {
+                        remapped = findRegisteredRepoByLocalRepoId(repoId);
+                    }
+                    if (!remapped.isBlank() && !remapped.equals(codeWikiId)) {
+                        codeWiki.deleteRepo(remapped);
+                        codeWikiDeleted = true;
+                        codeWikiWarning = "";
+                    }
+                } catch (Exception ignored) {
+                    // keep original warning
+                }
+            }
+        }
+
+        // 2) Delete FAQ + build task errors + tasks
+        jdbc.update("DELETE FROM repo_faq_items WHERE repo_id = ?", repoId);
+        jdbc.update("""
+                DELETE FROM knowledge_build_errors
+                WHERE task_id IN (SELECT task_id FROM knowledge_build_tasks WHERE repo_id = ?)
+                """, repoId);
         jdbc.update("DELETE FROM knowledge_build_tasks WHERE repo_id = ?", repoId);
 
-        // 重置 repo_index
+        // 3) Reset local index so next build must re-register + full analyze
         jdbc.update("""
                 UPDATE repo_index SET status = 'not_indexed', chunk_count = 0,
                     file_count = 0, graph_node_count = 0, graph_edge_count = 0,
-                    graph_community_count = 0, codewiki_repo_id = NULL,
-                    summary = '', languages = NULL, indexed_at = NULL,
-                    commit_sha = NULL, active_commit_sha = NULL,
-                    quality_status = NULL, quality_score = 0, quality_report = NULL,
-                    last_task_id = NULL
+                    graph_community_count = 0, codewiki_repo_id = '',
+                    summary = '', languages = '{}', indexed_at = '',
+                    commit_sha = '', active_commit_sha = '',
+                    quality_status = 'unknown', quality_score = 0, quality_report = '{}',
+                    last_task_id = ''
                 WHERE repo_id = ?
                 """, repoId);
 
-        // 删除 repo_index_settings
         jdbc.update("DELETE FROM repo_index_settings WHERE repo_id = ?", repoId);
-
-        // 清除 wiki 错误
         wikiErrors.remove(repoId);
 
-        return Map.of("repoId", repoId, "status", "not_indexed", "message", "知识库已重置，可以重新构建");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("repoId", repoId);
+        result.put("status", "not_indexed");
+        result.put("codeWikiDeleted", codeWikiDeleted);
+        result.put("previousCodeWikiRepoId", codeWikiId);
+        if (!codeWikiWarning.isBlank()) {
+            result.put("codeWikiWarning", codeWikiWarning);
+            result.put("message", "本地索引已重置，但 CodeWiki 远端清理失败（" + codeWikiWarning
+                    + "）。请确认 CodeWiki 可用后再重新构建。");
+        } else if (codeWikiId.isBlank()) {
+            result.put("message", "本地索引已重置。未发现关联的 CodeWiki 仓库，可直接重新构建。");
+        } else {
+            result.put("message", "知识库已完整重置（含 CodeWiki 图谱与 FAQ），请重新构建。");
+        }
+        return result;
     }
 
     // ── 以下为原有代码
@@ -751,7 +1066,14 @@ public class KnowledgeService {
         if (node == null) return 0;
         for (String field : fields) {
             JsonNode value = node.path(field);
-            if (value.isInt() || value.isLong()) return value.asInt();
+            if (value.isNumber()) return value.asInt();
+            if (value.isTextual()) {
+                try {
+                    return Integer.parseInt(value.asText().trim());
+                } catch (NumberFormatException ignored) {
+                    // try next field
+                }
+            }
             if (value.isArray()) return value.size();
         }
         return 0;

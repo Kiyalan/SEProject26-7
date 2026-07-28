@@ -22,17 +22,17 @@ public class FaqService {
 
     private static final List<TopicSeed> SEEDS = List.of(
             new TopicSeed("overview", "这个项目是做什么的？",
-                    "repository overview architecture modules purpose README"),
+                    "README project overview architecture RepoPilot knowledge GraphRAG wiki"),
             new TopicSeed("getting_started", "如何本地启动或运行这个项目？",
-                    "getting started install setup run start npm mvn docker compose"),
+                    "start-dev.ps1 run.ps1 docker compose npm run dev mvn package README"),
             new TopicSeed("api", "主要 API / 接口入口在哪里？",
-                    "API endpoints controllers routes OpenAPI request response"),
-            new TopicSeed("deployment", "项目如何部署或发布？",
-                    "deployment docker compose production release CI CD"),
+                    "RestController RequestMapping /api ChatController KnowledgeController"),
             new TopicSeed("architecture", "代码结构与模块划分是怎样的？",
-                    "architecture modules packages layers frontend backend"),
+                    "frontend backend services codewiki package structure modules"),
+            new TopicSeed("contributors", "项目参与者或主要贡献者有哪些？",
+                    "author contributor commit history git collaborators maintainers"),
             new TopicSeed("troubleshooting", "常见报错或排查入口有哪些？",
-                    "error exception troubleshooting fail crash bug fix")
+                    "error exception troubleshooting fail crash Worker lost SIGSEGV")
     );
 
     private final JdbcTemplate jdbc;
@@ -76,6 +76,10 @@ public class FaqService {
             } catch (Exception ex) {
                 throw new IllegalStateException("知识库未就绪，请先构建 GraphRAG 后再生成 FAQ", ex);
             }
+            if (evidence.isEmpty()) {
+                continue;
+            }
+            evidence = evidence.stream().filter(FaqService::isUsefulEvidence).toList();
             if (evidence.isEmpty()) {
                 continue;
             }
@@ -151,6 +155,22 @@ public class FaqService {
         item.put("confidence", confidence);
         item.put("updatedAt", now);
         return item;
+    }
+
+    private static boolean isUsefulEvidence(Map<String, Object> row) {
+        String file = Objects.toString(row.get("file"), "").toLowerCase().replace('\\', '/');
+        String content = Objects.toString(row.get("content"), "").trim();
+        if (content.length() < 24) {
+            return false;
+        }
+        if (file.endsWith("tsconfig.json") || file.endsWith("tsconfig.app.json")
+                || file.endsWith("tsconfig.node.json") || file.endsWith("package-lock.json")
+                || file.contains("/api/generated/") || file.endsWith(".gen.ts")) {
+            return false;
+        }
+        // Pure punctuation / braces from mis-parsed config snippets
+        String compact = content.replaceAll("\\s+", "");
+        return compact.length() > 8 && !compact.matches("[{}\\[\\],:\"]+");
     }
 
     private String fallbackAnswer(TopicSeed seed, List<Map<String, Object>> evidence) {

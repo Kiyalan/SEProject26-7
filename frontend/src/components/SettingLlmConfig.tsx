@@ -104,7 +104,7 @@ export default function SettingLlmConfig() {
           id="llm-model"
           value={config.model}
           onChange={(e) => setConfig((c) => ({ ...c, model: e.target.value }))}
-          placeholder="tencent/hy3:free"
+          placeholder="openai/gpt-oss-20b:free"
           disabled={disabled}
         />
       </div>

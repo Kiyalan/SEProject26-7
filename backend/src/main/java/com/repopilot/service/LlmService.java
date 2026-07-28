@@ -107,20 +107,25 @@ public class LlmService {
                         + c.get("file") + ":" + c.get("line") + "]\n" + c.get("content"))
                 .reduce((a, b) -> a + "\n\n" + b)
                 .orElse("");
-        String intentInstruction = intent.contains("history")
-                ? "历史问题必须逐条覆盖上下文中的 commit。headAdoption 只表示代码变化是否仍保留，不能据此声称 CI、构建或业务失败；证据不足时标为无法判断。"
+        String intentInstruction = intent.contains("branches")
+                ? "这是分支问题：必须依据 branch_list 上下文列出分支名，并用 aheadOfDefault/behindDefault/relation/littleUniqueContent 判断落后或几乎无独有内容。不要说看不到分支。"
+                : intent.contains("portfolio")
+                ? "这是多仓库问题：必须依据 portfolio 上下文列出具体仓库全名，区分「几乎没有内容/未索引」与「可能落后」。不要说无法判断，除非 portfolio 上下文缺失。"
+                : intent.contains("history")
+                ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；是否对当前 HEAD「过时」证据不足时标为无法判断，不要编造。"
                 : intent.contains("api")
                 ? "接口问题优先依据 api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权；不要只列前端函数名。"
                 : intent.contains("deployment")
                 ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署；缺少 Docker 或生产文档时明确指出。"
                 : "优先使用结构化仓库信息和相关源码回答。";
         String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径或 commit SHA。" + intentInstruction;
+                + "回答使用中文，并引用相关文件路径、仓库全名、分支名或 commit SHA。" + intentInstruction;
         String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
                 + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
                 + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
         try {
-            int maxTokens = intent.contains("history") || intent.contains("api") ? 3000 : 1800;
+            int maxTokens = intent.contains("history") || intent.contains("api")
+                    || intent.contains("portfolio") || intent.contains("branches") ? 3000 : 1800;
             return chatCompletion(systemPrompt, userPrompt, maxTokens);
         } catch (Exception ex) {
             return buildFallback(question, questionType, contexts, intent) + "\n\n（" + ex.getMessage() + "）";
@@ -146,17 +151,65 @@ public class LlmService {
         body.put("temperature", 0.2);
         body.put("max_tokens", maxTokens);
 
-        JsonNode response = client.post()
-                .uri(llm.baseUrl().replaceAll("/$", "") + "/chat/completions")
-                .header("Authorization", "Bearer " + apiKey)
-                .header("HTTP-Referer", llm.httpReferer())
-                .header("X-Title", llm.appTitle())
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
-                .retrieve()
-                .body(JsonNode.class);
+        JsonNode response;
+        try {
+            response = client.post()
+                    .uri(llm.baseUrl().replaceAll("/$", "") + "/chat/completions")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("HTTP-Referer", llm.httpReferer())
+                    .header("X-Title", llm.appTitle())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .onStatus(status -> status.isError(), (req, res) -> {
+                        String errBody = new String(res.getBody().readAllBytes());
+                        throw new IllegalStateException(formatLlmHttpError(res.getStatusCode().value(), errBody, llm.model()));
+                    })
+                    .body(JsonNode.class);
+        } catch (IllegalStateException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalStateException("LLM 请求失败: " + rootMessage(ex), ex);
+        }
 
-        return response.path("choices").path(0).path("message").path("content").asText("");
+        if (response != null && response.hasNonNull("error")) {
+            throw new IllegalStateException(formatLlmApiError(response.path("error"), llm.model()));
+        }
+        String content = response == null ? ""
+                : response.path("choices").path(0).path("message").path("content").asText("").trim();
+        if (content.isBlank()) {
+            throw new IllegalStateException(
+                    "LLM 返回了空内容（模型: " + llm.model() + "）。请检查模型是否可用，或在设置中更换模型。");
+        }
+        return content;
+    }
+
+    private static String formatLlmHttpError(int status, String body, String model) {
+        String detail = body == null ? "" : body.trim();
+        if (detail.length() > 500) {
+            detail = detail.substring(0, 500) + "…";
+        }
+        if (status == 404 && detail.toLowerCase().contains("unavailable for free")) {
+            return "模型 " + model + " 的免费版已下线（HTTP 404）。请在设置中改为可用免费模型，"
+                    + "例如 openai/gpt-oss-20b:free。详情: " + detail;
+        }
+        return "LLM API HTTP " + status + "（模型: " + model + "）: " + detail;
+    }
+
+    private static String formatLlmApiError(JsonNode error, String model) {
+        String message = error.path("message").asText(error.toString());
+        if (message.toLowerCase().contains("unavailable for free")) {
+            return "模型 " + model + " 免费版不可用。请改为 openai/gpt-oss-20b:free 或其他可用模型。原始错误: " + message;
+        }
+        return "LLM 错误（模型: " + model + "）: " + message;
+    }
+
+    private static String rootMessage(Throwable ex) {
+        Throwable current = ex;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
     public String buildFallback(String question, String questionType, List<Map<String, Object>> contexts) {
@@ -296,8 +349,12 @@ public class LlmService {
                 .reduce((a, b) -> a + "\n\n" + b)
                 .orElse("");
 
-        String intentInstruction = intent.contains("history")
-                ? "历史问题必须逐条覆盖上下文中的 commit。证据不足时标为无法判断。"
+        String intentInstruction = intent.contains("branches")
+                ? "这是分支问题：必须依据 branch_list 上下文列出分支名，并用 aheadOfDefault/behindDefault/relation/littleUniqueContent 判断落后或几乎无独有内容。不要说看不到分支。"
+                : intent.contains("portfolio")
+                ? "这是多仓库问题：必须依据 portfolio 上下文列出具体仓库全名，区分「几乎没有内容/未索引」与「可能落后」。不要说无法判断，除非 portfolio 上下文缺失。"
+                : intent.contains("history")
+                ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；证据不足时标为无法判断。"
                 : intent.contains("api")
                 ? "接口问题优先依据 api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权。"
                 : intent.contains("deployment")
@@ -305,7 +362,7 @@ public class LlmService {
                 : "优先使用结构化仓库信息和相关源码回答。";
 
         String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径或 commit SHA。" + intentInstruction;
+                + "回答使用中文，并引用相关文件路径、仓库全名、分支名或 commit SHA。" + intentInstruction;
         String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
                 + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
                 + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
@@ -340,9 +397,21 @@ public class LlmService {
 
         int responseCode = conn.getResponseCode();
         if (responseCode != 200) {
+            String errBody = "";
+            try (BufferedReader errReader = new BufferedReader(new InputStreamReader(
+                    conn.getErrorStream() == null ? conn.getInputStream() : conn.getErrorStream()))) {
+                StringBuilder sb = new StringBuilder();
+                String errLine;
+                while ((errLine = errReader.readLine()) != null) {
+                    sb.append(errLine);
+                }
+                errBody = sb.toString();
+            } catch (Exception ignored) {
+                // keep empty
+            }
             emitter.send(SseEmitter.event()
                     .name("error")
-                    .data("LLM API 返回 " + responseCode));
+                    .data(formatLlmHttpError(responseCode, errBody, llm.model())));
             return;
         }
 
@@ -357,6 +426,12 @@ public class LlmService {
                     }
                     try {
                         JsonNode chunk = mapper.readTree(data);
+                        if (chunk.has("error")) {
+                            emitter.send(SseEmitter.event()
+                                    .name("error")
+                                    .data(formatLlmApiError(chunk.path("error"), llm.model())));
+                            return;
+                        }
                         JsonNode delta = chunk.path("choices").path(0).path("delta");
                         String content = delta.path("content").asText("");
                         if (!content.isEmpty()) {
@@ -365,10 +440,19 @@ public class LlmService {
                                     .name("token")
                                     .data(mapper.writeValueAsString(Map.of("content", content))));
                         }
+                    } catch (IOException io) {
+                        throw io;
                     } catch (Exception ignored) {
                         // 跳过无法解析的行
                     }
                 }
+            }
+            if (fullContent.isEmpty()) {
+                emitter.send(SseEmitter.event()
+                        .name("error")
+                        .data("LLM 返回了空内容（模型: " + llm.model()
+                                + "）。请确认模型可用，推荐 openai/gpt-oss-20b:free"));
+                return;
             }
             // 发送完成信号
             emitter.send(SseEmitter.event()

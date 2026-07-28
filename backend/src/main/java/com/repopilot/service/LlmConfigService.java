@@ -148,25 +148,38 @@ public class LlmConfigService {
         }
     }
 
-    private static LlmSettings fromProperties(AppProperties properties) {
-        return new LlmSettings(
-                properties.llm().apiKey(),
-                properties.llm().baseUrl(),
-                properties.llm().model(),
-                properties.llm().embeddingModel(),
-                properties.llm().httpReferer(),
-                properties.llm().appTitle()
-        );
-    }
-
     private static LlmSettings merge(LlmSettings defaults, StoredConfig stored) {
         return new LlmSettings(
                 firstNonBlank(stored.apiKey(), defaults.apiKey()),
                 firstNonBlank(stored.baseUrl(), defaults.baseUrl()),
-                firstNonBlank(stored.model(), defaults.model()),
+                remapDeprecatedModel(firstNonBlank(stored.model(), defaults.model())),
                 firstNonBlank(stored.embeddingModel(), defaults.embeddingModel()),
                 firstNonBlank(stored.httpReferer(), defaults.httpReferer()),
                 firstNonBlank(stored.appTitle(), defaults.appTitle())
+        );
+    }
+
+    /** OpenRouter free slugs change; remap known dead defaults so old UI saves keep working. */
+    private static String remapDeprecatedModel(String model) {
+        if (model == null || model.isBlank()) {
+            return model;
+        }
+        String normalized = model.trim();
+        return switch (normalized) {
+            case "tencent/hy3:free", "tencent/hunyuan-a13b-instruct:free", "tencent/hy3" ->
+                    "openai/gpt-oss-20b:free";
+            default -> normalized;
+        };
+    }
+
+    private static LlmSettings fromProperties(AppProperties properties) {
+        return new LlmSettings(
+                properties.llm().apiKey(),
+                properties.llm().baseUrl(),
+                remapDeprecatedModel(properties.llm().model()),
+                properties.llm().embeddingModel(),
+                properties.llm().httpReferer(),
+                properties.llm().appTitle()
         );
     }
 

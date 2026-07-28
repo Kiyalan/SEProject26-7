@@ -1,15 +1,17 @@
 package com.repopilot.service;
 
 import com.repopilot.config.AppProperties;
+import org.eclipse.jgit.api.ListBranchCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ResetCommand;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
-import org.eclipse.jgit.transport.CredentialsProvider;
+import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.springframework.stereotype.Service;
@@ -65,7 +67,13 @@ public class GitRepositoryService {
                     if (!cloned) {
                         if (onProgress != null) onProgress.accept("正在拉取远端更新");
                     }
-                    git.fetch().setRemote("origin").setCredentialsProvider(credentials).call();
+                    // Always refresh all remote heads so branch Q&A is possible even though
+                    // CodeWiki indexes only the checked-out default branch working tree.
+                    git.fetch()
+                            .setRemote("origin")
+                            .setRefSpecs(new RefSpec("+refs/heads/*:refs/remotes/origin/*"))
+                            .setCredentialsProvider(credentials)
+                            .call();
                     if (onProgress != null) onProgress.accept("正在检出默认分支");
                     ObjectId remoteHead = repository.resolve("refs/remotes/origin/" + branch);
                     if (remoteHead == null) throw new IllegalStateException("远端默认分支不存在: " + branch);
@@ -80,6 +88,128 @@ public class GitRepositoryService {
                 credentials.clear();
             }
         }
+    }
+
+    /**
+     * List remote branches and compare each tip against the default branch.
+     * CodeWiki indexes only the checked-out default branch; this metadata is for Q&A.
+     */
+    public List<Map<String, Object>> listBranches(String repoId, String ownerLogin, String defaultBranch) {
+        String baseName = (defaultBranch == null || defaultBranch.isBlank()) ? "main" : defaultBranch.trim();
+        try (Git git = Git.open(hostPath(repoId, ownerLogin).toFile())) {
+            Repository repository = git.getRepository();
+            // Best-effort refresh of remote heads (no credentials here; use last sync/fetch).
+            try {
+                git.fetch()
+                        .setRemote("origin")
+                        .setRefSpecs(new RefSpec("+refs/heads/*:refs/remotes/origin/*"))
+                        .call();
+            } catch (Exception ignored) {
+                // Offline / auth missing: still answer from already-fetched refs.
+            }
+
+            ObjectId baseId = repository.resolve("refs/remotes/origin/" + baseName);
+            if (baseId == null) {
+                baseId = repository.resolve("refs/remotes/origin/master");
+                if (baseId != null) {
+                    baseName = "master";
+                }
+            }
+            if (baseId == null && repository.resolve("HEAD") != null) {
+                baseId = repository.resolve("HEAD");
+            }
+            if (baseId == null) {
+                throw new IllegalStateException("无法解析默认分支 tip");
+            }
+
+            List<Ref> refs = git.branchList().setListMode(ListBranchCommand.ListMode.REMOTE).call();
+            List<Map<String, Object>> result = new ArrayList<>();
+            int index = 0;
+            for (Ref ref : refs) {
+                String full = ref.getName(); // refs/remotes/origin/foo
+                if (!full.startsWith("refs/remotes/origin/")) {
+                    continue;
+                }
+                String name = full.substring("refs/remotes/origin/".length());
+                if ("HEAD".equals(name)) {
+                    continue;
+                }
+                ObjectId tip = ref.getObjectId();
+                if (tip == null) continue;
+
+                int ahead = 0;
+                int behind = 0;
+                String tipMessage = "";
+                String tipSha = tip.name();
+                try (RevWalk walk = new RevWalk(repository)) {
+                    RevCommit tipCommit = walk.parseCommit(tip);
+                    tipMessage = tipCommit.getShortMessage();
+                    RevCommit baseCommit = walk.parseCommit(baseId);
+                    ahead = countReachable(walk, tipCommit, baseCommit);
+                    behind = countReachable(walk, baseCommit, tipCommit);
+                }
+
+                boolean isDefault = name.equals(baseName);
+                String relation;
+                if (isDefault || (ahead == 0 && behind == 0)) {
+                    relation = isDefault ? "default" : "same_as_default";
+                } else if (ahead == 0 && behind > 0) {
+                    relation = "behind_only";
+                } else if (ahead > 0 && behind == 0) {
+                    relation = "ahead_only";
+                } else {
+                    relation = "diverged";
+                }
+
+                // "几乎没有独有内容": no unique commits ahead of default
+                boolean littleUniqueContent = !isDefault && ahead == 0;
+
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("file", "git/branches/" + name);
+                row.put("line", ++index);
+                row.put("endLine", index);
+                row.put("symbolName", name);
+                row.put("symbolKind", "branch");
+                row.put("score", 100 - index);
+                row.put("retrievalType", "structured");
+                row.put("sourceType", "branch_list");
+                row.put("content", "branch: " + name
+                        + "\ndefaultBranch: " + baseName
+                        + "\nisDefault: " + isDefault
+                        + "\ntipSha: " + tipSha.substring(0, Math.min(12, tipSha.length()))
+                        + "\ntipMessage: " + tipMessage.replace('\n', ' ')
+                        + "\naheadOfDefault: " + ahead
+                        + "\nbehindDefault: " + behind
+                        + "\nrelation: " + relation
+                        + "\nlittleUniqueContent: " + littleUniqueContent
+                        + "\nnote: CodeWiki 知识图谱只索引默认分支工作区；ahead/behind 相对 origin/"
+                        + baseName + "。"
+                        + "ahead=0 且 behind>0 → 落后默认分支；diverged → 与默认分支分叉/可能无关；"
+                        + "same_as_default → 与默认分支同 tip。");
+                result.add(row);
+                if (result.size() >= 40) {
+                    break;
+                }
+            }
+            return result;
+        } catch (Exception ex) {
+            throw new IllegalStateException("读取分支列表失败: " + rootMessage(ex), ex);
+        }
+    }
+
+    private static int countReachable(RevWalk walk, RevCommit start, RevCommit uninteresting) throws Exception {
+        walk.reset();
+        walk.setRetainBody(false);
+        walk.markStart(start);
+        walk.markUninteresting(uninteresting);
+        int count = 0;
+        for (RevCommit ignored : walk) {
+            count++;
+            if (count >= 500) {
+                break;
+            }
+        }
+        return count;
     }
 
     public List<Map<String, Object>> history(String repoId, String ownerLogin, int limit) {
@@ -103,8 +233,12 @@ public class GitRepositoryService {
                         + "\ntime: " + commit.getAuthorIdent().getWhenAsInstant()
                                 .atZone(ZoneOffset.UTC).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
                         + "\nmessage: " + commit.getFullMessage().replace('\n', ' ')
+                        + "\nparentCount: " + commit.getParentCount()
+                        + "\nemptyChange: " + (changes.isEmpty() && commit.getParentCount() > 0)
                         + "\nchangedPaths: " + changes.stream().limit(20)
-                                .map(change -> change.getChangeType() + ":" + change.getNewPath()).toList());
+                                .map(change -> change.getChangeType() + ":" + change.getNewPath()).toList()
+                        + "\nnote: emptyChange=true 表示相对父提交无文件差异（常见于空合并）；"
+                        + "是否「对当前 HEAD 过时」需结合后续提交是否覆盖这些路径，证据不足时勿武断。");
                 result.add(row);
             }
             return result;

@@ -94,7 +94,7 @@ class CodeWikiClientTest {
         AppProperties.CodeWiki config = new AppProperties.CodeWiki(
                 "http://localhost:" + server.getAddress().getPort(), ".", "/repos",
                 true, 2, 2, 1, 2);
-        AppProperties properties = new AppProperties(null, null, config);
+        AppProperties properties = new AppProperties(null, null, null, config);
         return new CodeWikiClient(RestClient.builder(), new ObjectMapper(), properties);
     }
 }

@@ -1,5 +1,5 @@
 import { FileIcon, FileDirectoryIcon, GitCommitIcon, PackageIcon, SyncIcon } from '@primer/octicons-react'
-import { Alert, Spin, message } from 'antd'
+import { Alert, Modal, Spin, message } from 'antd'
 import type { DataNode } from 'antd/es/tree'
 import { Tree } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
@@ -288,15 +288,48 @@ export default function Knowledge() {
 
   const handleReset = async () => {
     if (!currentRepoId) return
-    setError(null)
-    try {
-      const { data } = await resetKnowledge({ path: { repoId: currentRepoId } })
-      message.success(data.message || '知识库已重置')
-      await loadOverview(currentRepoId)
-      await loadTasks(currentRepoId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '重置失败')
-    }
+    Modal.confirm({
+      title: '确认重置知识库？',
+      content:
+        '将删除本地索引、FAQ、构建记录，并尝试删除 CodeWiki 中的图谱/Wiki。之后需要重新「构建知识库」。',
+      okText: '确认重置',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setError(null)
+        try {
+          const { data } = await resetKnowledge({ path: { repoId: currentRepoId } })
+          const payload = data as {
+            message?: string
+            codeWikiDeleted?: boolean
+            codeWikiWarning?: string
+          }
+          if (payload.codeWikiWarning) {
+            message.warning(payload.message || '本地已重置，CodeWiki 清理不完整')
+          } else {
+            message.success(payload.message || '知识库已重置')
+          }
+          setOverview(null)
+          setGraphStatus(null)
+          setWiki(null)
+          setSelectedWikiPageId('')
+          setFaq(null)
+          setTasks([])
+          setTaskErrors([])
+          await loadOverview(currentRepoId)
+          await loadTasks(currentRepoId)
+          await loadFaq(currentRepoId)
+          fetchKnowledgeGraphStatus({ path: { repoId: currentRepoId } })
+            .then(({ data: status }) => setGraphStatus(status))
+            .catch(() => setGraphStatus(null))
+          fetchKnowledgeWiki({ path: { repoId: currentRepoId }, query: { language: 'zh' } })
+            .then(({ data: current }) => setWiki(current))
+            .catch(() => setWiki(null))
+        } catch (err) {
+          setError(err instanceof Error ? err.message : '重置失败')
+        }
+      },
+    })
   }
 
   const handleCompare = async () => {
