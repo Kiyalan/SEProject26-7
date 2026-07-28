@@ -4,7 +4,7 @@ const ADMIN_ROLE_KEY = 'repopilot_admin_role'
 const LOCK_UNTIL_KEY = 'repopilot_admin_lock_until'
 const FAIL_COUNT_KEY = 'repopilot_admin_fail_count'
 
-/** 演示账号，仅前端校验；正式环境需后端鉴权 */
+/** 演示账号（与后端 repopilot.admin 默认一致） */
 export const DEMO_ADMIN = {
   username: 'admin',
   password: 'repopilot2026',
@@ -14,6 +14,7 @@ export const DEMO_ADMIN = {
 
 const MAX_ATTEMPTS = 5
 const LOCK_MINUTES = 15
+const API_BASE = import.meta.env.VITE_API_URL || ''
 
 export type AdminRole = 'super_admin' | 'ops_admin'
 
@@ -34,8 +35,8 @@ export function isAdminAuthenticated(): boolean {
   return Boolean(getAdminToken())
 }
 
-export function setAdminAuth(username: string, role: AdminRole) {
-  localStorage.setItem(ADMIN_TOKEN_KEY, `admin-demo-${Date.now()}`)
+export function setAdminAuth(username: string, role: AdminRole, token: string) {
+  localStorage.setItem(ADMIN_TOKEN_KEY, token)
   localStorage.setItem(ADMIN_USERNAME_KEY, username)
   localStorage.setItem(ADMIN_ROLE_KEY, role)
   localStorage.removeItem(FAIL_COUNT_KEY)
@@ -53,6 +54,7 @@ export type AdminLoginResult =
   | { ok: false; reason: 'invalid_credentials'; remaining: number }
   | { ok: false; reason: 'locked'; minutesLeft: number }
   | { ok: false; reason: 'empty_fields' }
+  | { ok: false; reason: 'network'; message: string }
 
 function getFailCount(): number {
   return Number(localStorage.getItem(FAIL_COUNT_KEY) || '0')
@@ -73,7 +75,19 @@ export function getAdminLockState(): { locked: boolean; minutesLeft: number } {
   }
 }
 
-export function adminLogin(username: string, password: string): AdminLoginResult {
+function registerFailure(): AdminLoginResult {
+  const fails = getFailCount() + 1
+  localStorage.setItem(FAIL_COUNT_KEY, String(fails))
+  if (fails >= MAX_ATTEMPTS) {
+    const until = Date.now() + LOCK_MINUTES * 60 * 1000
+    localStorage.setItem(LOCK_UNTIL_KEY, String(until))
+    localStorage.setItem(FAIL_COUNT_KEY, '0')
+    return { ok: false, reason: 'locked', minutesLeft: LOCK_MINUTES }
+  }
+  return { ok: false, reason: 'invalid_credentials', remaining: MAX_ATTEMPTS - fails }
+}
+
+export async function adminLogin(username: string, password: string): Promise<AdminLoginResult> {
   if (!username.trim() || !password.trim()) {
     return { ok: false, reason: 'empty_fields' }
   }
@@ -83,20 +97,34 @@ export function adminLogin(username: string, password: string): AdminLoginResult
     return { ok: false, reason: 'locked', minutesLeft: lock.minutesLeft }
   }
 
-  if (username === DEMO_ADMIN.username && password === DEMO_ADMIN.password) {
-    setAdminAuth(DEMO_ADMIN.displayName, DEMO_ADMIN.role)
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username.trim(), password }),
+    })
+    if (!response.ok) {
+      return registerFailure()
+    }
+    const data = (await response.json()) as {
+      token?: string
+      username?: string
+      role?: AdminRole
+    }
+    if (!data.token) {
+      return registerFailure()
+    }
+    setAdminAuth(
+      data.username || DEMO_ADMIN.displayName,
+      data.role === 'ops_admin' ? 'ops_admin' : 'super_admin',
+      data.token,
+    )
     return { ok: true }
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'network',
+      message: err instanceof Error ? err.message : '无法连接后端',
+    }
   }
-
-  const fails = getFailCount() + 1
-  localStorage.setItem(FAIL_COUNT_KEY, String(fails))
-
-  if (fails >= MAX_ATTEMPTS) {
-    const until = Date.now() + LOCK_MINUTES * 60 * 1000
-    localStorage.setItem(LOCK_UNTIL_KEY, String(until))
-    localStorage.setItem(FAIL_COUNT_KEY, '0')
-    return { ok: false, reason: 'locked', minutesLeft: LOCK_MINUTES }
-  }
-
-  return { ok: false, reason: 'invalid_credentials', remaining: MAX_ATTEMPTS - fails }
 }

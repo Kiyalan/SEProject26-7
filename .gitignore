@@ -1,2 +1,47 @@
-/frontend/node_modules/
-/frontend/dist/
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Frontend build
+frontend/dist/
+dist/
+.vite/
+
+# Java / Maven
+backend/target/
+target/
+*.class
+
+# Python
+.venv/
+**/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environment & secrets (never commit)
+.env
+.env.*
+!.env.example
+backend/.env
+prototype/**/.env
+
+# Runtime data (H2 DB, LLM config with API keys, cloned repos)
+backend/data/
+!backend/data/repos/
+!backend/data/repos/.gitkeep
+data/
+
+# Logs
+*.log
+logs/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*.swp
+*~

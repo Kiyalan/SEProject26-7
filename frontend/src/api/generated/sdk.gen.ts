@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AnalyzeIssueData, AnalyzeIssueErrors, AnalyzeIssueResponses, BuildKnowledgeData, BuildKnowledgeErrors, BuildKnowledgeResponses, CompareKnowledgeCommitsData, CompareKnowledgeCommitsErrors, CompareKnowledgeCommitsResponses, ExecuteGitActionData, ExecuteGitActionErrors, ExecuteGitActionResponses, ExecuteNlCommandData, ExecuteNlCommandErrors, ExecuteNlCommandResponses, FetchKnowledgeCommitsData, FetchKnowledgeCommitsErrors, FetchKnowledgeCommitsResponses, FetchKnowledgeData, FetchKnowledgeErrors, FetchKnowledgePolicyData, FetchKnowledgePolicyErrors, FetchKnowledgePolicyResponses, FetchKnowledgeResponses, FetchLlmConfigData, FetchLlmConfigErrors, FetchLlmConfigResponses, FetchPortfolioOverviewData, FetchPortfolioOverviewErrors, FetchPortfolioOverviewResponses, FetchRepoListData, FetchRepoListErrors, FetchRepoListResponses, FetchRepoSingleData, FetchRepoSingleErrors, FetchRepoSingleResponses, FetchRepositoryIssueData, FetchRepositoryIssueErrors, FetchRepositoryIssueResponses, FetchRepositoryIssuesData, FetchRepositoryIssuesErrors, FetchRepositoryIssuesResponses, FetchUserProfileData, FetchUserProfileErrors, FetchUserProfileResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SetLlmConfigData, SetLlmConfigErrors, SetLlmConfigResponses, StartGithubLoginData, StartGithubLoginErrors, UpdateKnowledgeSettingsData, UpdateKnowledgeSettingsErrors, UpdateKnowledgeSettingsResponses } from './types.gen';
+import type { AdminLoginData, AdminLoginErrors, AdminLoginResponses, AnalyzeIssueData, AnalyzeIssueErrors, AnalyzeIssueResponses, BuildKnowledgeData, BuildKnowledgeErrors, BuildKnowledgeResponses, CompareKnowledgeCommitsData, CompareKnowledgeCommitsErrors, CompareKnowledgeCommitsResponses, CompleteGithubLoginData, CompleteGithubLoginErrors, ExecuteGitActionData, ExecuteGitActionErrors, ExecuteGitActionResponses, ExecuteNlCommandData, ExecuteNlCommandErrors, ExecuteNlCommandResponses, ExploreKnowledgeGraphData, ExploreKnowledgeGraphErrors, ExploreKnowledgeGraphResponses, ExportAdminFaqData, ExportAdminFaqErrors, ExportAdminFaqResponses, ExportRepoFaqData, ExportRepoFaqErrors, ExportRepoFaqResponses, FetchAdminAuditLogsData, FetchAdminAuditLogsErrors, FetchAdminAuditLogsResponses, FetchAdminFaqReposData, FetchAdminFaqReposErrors, FetchAdminFaqReposResponses, FetchAdminIntegrityData, FetchAdminIntegrityErrors, FetchAdminIntegrityResponses, FetchAdminOverviewData, FetchAdminOverviewErrors, FetchAdminOverviewResponses, FetchAdminSyncFailuresData, FetchAdminSyncFailuresErrors, FetchAdminSyncFailuresResponses, FetchAdminSyncTasksData, FetchAdminSyncTasksErrors, FetchAdminSyncTasksResponses, FetchAdminUsersData, FetchAdminUsersErrors, FetchAdminUsersResponses, FetchKnowledgeBuildErrorsData, FetchKnowledgeBuildErrorsErrors, FetchKnowledgeBuildErrorsResponses, FetchKnowledgeBuildTaskData, FetchKnowledgeBuildTaskErrors, FetchKnowledgeBuildTaskResponses, FetchKnowledgeBuildTasksData, FetchKnowledgeBuildTasksErrors, FetchKnowledgeBuildTasksResponses, FetchKnowledgeCommitsData, FetchKnowledgeCommitsErrors, FetchKnowledgeCommitsResponses, FetchKnowledgeData, FetchKnowledgeErrors, FetchKnowledgeGraphAffectedData, FetchKnowledgeGraphAffectedErrors, FetchKnowledgeGraphAffectedResponses, FetchKnowledgeGraphCalleesData, FetchKnowledgeGraphCalleesErrors, FetchKnowledgeGraphCalleesResponses, FetchKnowledgeGraphCallersData, FetchKnowledgeGraphCallersErrors, FetchKnowledgeGraphCallersResponses, FetchKnowledgeGraphImpactData, FetchKnowledgeGraphImpactErrors, FetchKnowledgeGraphImpactResponses, FetchKnowledgeGraphStatusData, FetchKnowledgeGraphStatusErrors, FetchKnowledgeGraphStatusResponses, FetchKnowledgePolicyData, FetchKnowledgePolicyErrors, FetchKnowledgePolicyResponses, FetchKnowledgeQualityData, FetchKnowledgeQualityErrors, FetchKnowledgeQualityResponses, FetchKnowledgeResponses, FetchKnowledgeWikiData, FetchKnowledgeWikiErrors, FetchKnowledgeWikiResponses, FetchLlmConfigData, FetchLlmConfigErrors, FetchLlmConfigResponses, FetchNotificationSettingsData, FetchNotificationSettingsErrors, FetchNotificationSettingsResponses, FetchPortfolioOverviewData, FetchPortfolioOverviewErrors, FetchPortfolioOverviewResponses, FetchRepoFaqData, FetchRepoFaqErrors, FetchRepoFaqResponses, FetchRepoListData, FetchRepoListErrors, FetchRepoListResponses, FetchRepoProgressData, FetchRepoProgressErrors, FetchRepoProgressResponses, FetchRepoSingleData, FetchRepoSingleErrors, FetchRepoSingleResponses, FetchRepositoryIssueData, FetchRepositoryIssueErrors, FetchRepositoryIssueResponses, FetchRepositoryIssuesData, FetchRepositoryIssuesErrors, FetchRepositoryIssuesResponses, FetchUserProfileData, FetchUserProfileErrors, FetchUserProfileResponses, GenerateKnowledgeWikiData, GenerateKnowledgeWikiErrors, GenerateKnowledgeWikiResponses, GenerateRepoFaqData, GenerateRepoFaqErrors, GenerateRepoFaqResponses, ResetKnowledgeData, ResetKnowledgeErrors, ResetKnowledgeResponses, SearchKnowledgeData, SearchKnowledgeErrors, SearchKnowledgeGraphData, SearchKnowledgeGraphErrors, SearchKnowledgeGraphResponses, SearchKnowledgeResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SendTestNotificationData, SendTestNotificationErrors, SendTestNotificationResponses, SetLlmConfigData, SetLlmConfigErrors, SetLlmConfigResponses, StartGithubLoginData, StartGithubLoginErrors, UpdateKnowledgeSettingsData, UpdateKnowledgeSettingsErrors, UpdateKnowledgeSettingsResponses, UpdateNotificationSettingsData, UpdateNotificationSettingsErrors, UpdateNotificationSettingsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -24,6 +24,13 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  * Browser navigation (not apiFetch). Redirects to GitHub authorize, then backend completes via `/auth/callback` and returns the user to the frontend OAuth success page with token query params.
  */
 export const startGithubLogin = <ThrowOnError extends boolean = true>(options?: Options<StartGithubLoginData, ThrowOnError>): RequestResult<unknown, StartGithubLoginErrors, ThrowOnError> => (options?.client ?? client).get<unknown, StartGithubLoginErrors, ThrowOnError>({ url: '/auth/github', ...options });
+
+/**
+ * Complete GitHub OAuth callback
+ *
+ * GitHub redirects the browser here. The backend validates state, exchanges the code, then redirects to the frontend success or error page.
+ */
+export const completeGithubLogin = <ThrowOnError extends boolean = true>(options?: Options<CompleteGithubLoginData, ThrowOnError>): RequestResult<unknown, CompleteGithubLoginErrors, ThrowOnError> => (options?.client ?? client).get<unknown, CompleteGithubLoginErrors, ThrowOnError>({ url: '/auth/callback', ...options });
 
 /**
  * Get current GitHub user profile
@@ -148,9 +155,19 @@ export const fetchKnowledge = <ThrowOnError extends boolean = true>(options: Opt
 });
 
 /**
- * List indexed commits
+ * Reset knowledge base for a repo — clears build tasks, resets index state, removes settings
+ */
+export const resetKnowledge = <ThrowOnError extends boolean = true>(options: Options<ResetKnowledgeData, ThrowOnError>): RequestResult<ResetKnowledgeResponses, ResetKnowledgeErrors, ThrowOnError> => (options.client ?? client).delete<ResetKnowledgeResponses, ResetKnowledgeErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge',
+    ...options
+});
+
+/**
+ * List Git commit history for the indexed repository
  *
- * Exported in frontend `api.ts` (`fetchKnowledgeCommits`); may not be used by current UI pages.
+ * Returns JGit history from the local repository mirror. Only current HEAD has a CodeWiki GraphRAG index.
  */
 export const fetchKnowledgeCommits = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeCommitsData, ThrowOnError>): RequestResult<FetchKnowledgeCommitsResponses, FetchKnowledgeCommitsErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeCommitsResponses, FetchKnowledgeCommitsErrors, ThrowOnError>({
     responseType: 'json',
@@ -181,6 +198,168 @@ export const updateKnowledgeSettings = <ThrowOnError extends boolean = true>(opt
         'Content-Type': 'application/json',
         ...options.headers
     }
+});
+
+/**
+ * Get live and persisted repository job progress
+ */
+export const fetchRepoProgress = <ThrowOnError extends boolean = true>(options: Options<FetchRepoProgressData, ThrowOnError>): RequestResult<FetchRepoProgressResponses, FetchRepoProgressErrors, ThrowOnError> => (options.client ?? client).get<FetchRepoProgressResponses, FetchRepoProgressErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/progress',
+    ...options
+});
+
+/**
+ * List persisted knowledge build tasks
+ */
+export const fetchKnowledgeBuildTasks = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeBuildTasksData, ThrowOnError>): RequestResult<FetchKnowledgeBuildTasksResponses, FetchKnowledgeBuildTasksErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeBuildTasksResponses, FetchKnowledgeBuildTasksErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge/tasks',
+    ...options
+});
+
+/**
+ * Get a persisted knowledge build task
+ */
+export const fetchKnowledgeBuildTask = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeBuildTaskData, ThrowOnError>): RequestResult<FetchKnowledgeBuildTaskResponses, FetchKnowledgeBuildTaskErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeBuildTaskResponses, FetchKnowledgeBuildTaskErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge/tasks/{taskId}',
+    ...options
+});
+
+/**
+ * List detailed errors and warnings for a build task
+ */
+export const fetchKnowledgeBuildErrors = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeBuildErrorsData, ThrowOnError>): RequestResult<FetchKnowledgeBuildErrorsResponses, FetchKnowledgeBuildErrorsErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeBuildErrorsResponses, FetchKnowledgeBuildErrorsErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge/tasks/{taskId}/errors',
+    ...options
+});
+
+/**
+ * Get the latest persisted index quality state
+ */
+export const fetchKnowledgeQuality = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeQualityData, ThrowOnError>): RequestResult<FetchKnowledgeQualityResponses, FetchKnowledgeQualityErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeQualityResponses, FetchKnowledgeQualityErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge/quality',
+    ...options
+});
+
+/**
+ * Search indexed chunks with vector or keyword retrieval
+ */
+export const searchKnowledge = <ThrowOnError extends boolean = true>(options: Options<SearchKnowledgeData, ThrowOnError>): RequestResult<SearchKnowledgeResponses, SearchKnowledgeErrors, ThrowOnError> => (options.client ?? client).post<SearchKnowledgeResponses, SearchKnowledgeErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge/search',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get CodeWiki GraphRAG index status
+ */
+export const fetchKnowledgeGraphStatus = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeGraphStatusData, ThrowOnError>): RequestResult<FetchKnowledgeGraphStatusResponses, FetchKnowledgeGraphStatusErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeGraphStatusResponses, FetchKnowledgeGraphStatusErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge/graph/status',
+    ...options
+});
+
+/**
+ * Search the CodeWiki knowledge graph
+ */
+export const searchKnowledgeGraph = <ThrowOnError extends boolean = true>(options: Options<SearchKnowledgeGraphData, ThrowOnError>): RequestResult<SearchKnowledgeGraphResponses, SearchKnowledgeGraphErrors, ThrowOnError> => (options.client ?? client).get<SearchKnowledgeGraphResponses, SearchKnowledgeGraphErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge/graph/search',
+    ...options
+});
+
+/**
+ * Get callers of a graph symbol
+ */
+export const fetchKnowledgeGraphCallers = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeGraphCallersData, ThrowOnError>): RequestResult<FetchKnowledgeGraphCallersResponses, FetchKnowledgeGraphCallersErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeGraphCallersResponses, FetchKnowledgeGraphCallersErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/graph/callers',
+    ...options
+});
+
+/**
+ * Get callees of a graph symbol
+ */
+export const fetchKnowledgeGraphCallees = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeGraphCalleesData, ThrowOnError>): RequestResult<FetchKnowledgeGraphCalleesResponses, FetchKnowledgeGraphCalleesErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeGraphCalleesResponses, FetchKnowledgeGraphCalleesErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/graph/callees',
+    ...options
+});
+
+/**
+ * Analyze the impact radius of a graph symbol
+ */
+export const fetchKnowledgeGraphImpact = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeGraphImpactData, ThrowOnError>): RequestResult<FetchKnowledgeGraphImpactResponses, FetchKnowledgeGraphImpactErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeGraphImpactResponses, FetchKnowledgeGraphImpactErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/graph/impact',
+    ...options
+});
+
+/**
+ * Explore a bounded graph neighborhood
+ */
+export const exploreKnowledgeGraph = <ThrowOnError extends boolean = true>(options: Options<ExploreKnowledgeGraphData, ThrowOnError>): RequestResult<ExploreKnowledgeGraphResponses, ExploreKnowledgeGraphErrors, ThrowOnError> => (options.client ?? client).post<ExploreKnowledgeGraphResponses, ExploreKnowledgeGraphErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/graph/explore',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Find graph entities affected by changed files
+ */
+export const fetchKnowledgeGraphAffected = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeGraphAffectedData, ThrowOnError>): RequestResult<FetchKnowledgeGraphAffectedResponses, FetchKnowledgeGraphAffectedErrors, ThrowOnError> => (options.client ?? client).post<FetchKnowledgeGraphAffectedResponses, FetchKnowledgeGraphAffectedErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/graph/affected',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Generate or regenerate the CodeWiki wiki on demand
+ */
+export const generateKnowledgeWiki = <ThrowOnError extends boolean = true>(options: Options<GenerateKnowledgeWikiData, ThrowOnError>): RequestResult<GenerateKnowledgeWikiResponses, GenerateKnowledgeWikiErrors, ThrowOnError> => (options.client ?? client).post<GenerateKnowledgeWikiResponses, GenerateKnowledgeWikiErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge/wiki/generate',
+    ...options
+});
+
+/**
+ * Get a generated CodeWiki wiki
+ */
+export const fetchKnowledgeWiki = <ThrowOnError extends boolean = true>(options: Options<FetchKnowledgeWikiData, ThrowOnError>): RequestResult<FetchKnowledgeWikiResponses, FetchKnowledgeWikiErrors, ThrowOnError> => (options.client ?? client).get<FetchKnowledgeWikiResponses, FetchKnowledgeWikiErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/knowledge/wiki',
+    ...options
 });
 
 /**
@@ -235,4 +414,169 @@ export const executeNlCommand = <ThrowOnError extends boolean = true>(options: O
         'Content-Type': 'application/json',
         ...options.headers
     }
+});
+
+/**
+ * List generated FAQ items for a repository
+ */
+export const fetchRepoFaq = <ThrowOnError extends boolean = true>(options: Options<FetchRepoFaqData, ThrowOnError>): RequestResult<FetchRepoFaqResponses, FetchRepoFaqErrors, ThrowOnError> => (options.client ?? client).get<FetchRepoFaqResponses, FetchRepoFaqErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/faq',
+    ...options
+});
+
+/**
+ * Generate or refresh FAQ clusters from GraphRAG evidence
+ */
+export const generateRepoFaq = <ThrowOnError extends boolean = true>(options: Options<GenerateRepoFaqData, ThrowOnError>): RequestResult<GenerateRepoFaqResponses, GenerateRepoFaqErrors, ThrowOnError> => (options.client ?? client).post<GenerateRepoFaqResponses, GenerateRepoFaqErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/faq/generate',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Export FAQ as markdown or JSON
+ */
+export const exportRepoFaq = <ThrowOnError extends boolean = true>(options: Options<ExportRepoFaqData, ThrowOnError>): RequestResult<ExportRepoFaqResponses, ExportRepoFaqErrors, ThrowOnError> => (options.client ?? client).get<ExportRepoFaqResponses, ExportRepoFaqErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/repos/{repoId}/faq/export',
+    ...options
+});
+
+/**
+ * Get email notification preferences
+ */
+export const fetchNotificationSettings = <ThrowOnError extends boolean = true>(options?: Options<FetchNotificationSettingsData, ThrowOnError>): RequestResult<FetchNotificationSettingsResponses, FetchNotificationSettingsErrors, ThrowOnError> => (options?.client ?? client).get<FetchNotificationSettingsResponses, FetchNotificationSettingsErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/user/setting/notifications',
+    ...options
+});
+
+/**
+ * Update email notification preferences
+ */
+export const updateNotificationSettings = <ThrowOnError extends boolean = true>(options: Options<UpdateNotificationSettingsData, ThrowOnError>): RequestResult<UpdateNotificationSettingsResponses, UpdateNotificationSettingsErrors, ThrowOnError> => (options.client ?? client).put<UpdateNotificationSettingsResponses, UpdateNotificationSettingsErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/user/setting/notifications',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Send a stub test notification email (no real delivery)
+ */
+export const sendTestNotification = <ThrowOnError extends boolean = true>(options?: Options<SendTestNotificationData, ThrowOnError>): RequestResult<SendTestNotificationResponses, SendTestNotificationErrors, ThrowOnError> => (options?.client ?? client).post<SendTestNotificationResponses, SendTestNotificationErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/user/setting/notifications/test',
+    ...options
+});
+
+/**
+ * Admin login
+ */
+export const adminLogin = <ThrowOnError extends boolean = true>(options: Options<AdminLoginData, ThrowOnError>): RequestResult<AdminLoginResponses, AdminLoginErrors, ThrowOnError> => (options.client ?? client).post<AdminLoginResponses, AdminLoginErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/api/admin/login',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Admin dashboard overview
+ */
+export const fetchAdminOverview = <ThrowOnError extends boolean = true>(options?: Options<FetchAdminOverviewData, ThrowOnError>): RequestResult<FetchAdminOverviewResponses, FetchAdminOverviewErrors, ThrowOnError> => (options?.client ?? client).get<FetchAdminOverviewResponses, FetchAdminOverviewErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/admin/overview',
+    ...options
+});
+
+/**
+ * List knowledge sync/build tasks across repos
+ */
+export const fetchAdminSyncTasks = <ThrowOnError extends boolean = true>(options?: Options<FetchAdminSyncTasksData, ThrowOnError>): RequestResult<FetchAdminSyncTasksResponses, FetchAdminSyncTasksErrors, ThrowOnError> => (options?.client ?? client).get<FetchAdminSyncTasksResponses, FetchAdminSyncTasksErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/admin/sync-tasks',
+    ...options
+});
+
+/**
+ * List failed sync/build tasks
+ */
+export const fetchAdminSyncFailures = <ThrowOnError extends boolean = true>(options?: Options<FetchAdminSyncFailuresData, ThrowOnError>): RequestResult<FetchAdminSyncFailuresResponses, FetchAdminSyncFailuresErrors, ThrowOnError> => (options?.client ?? client).get<FetchAdminSyncFailuresResponses, FetchAdminSyncFailuresErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/admin/sync-failures',
+    ...options
+});
+
+/**
+ * Per-repo knowledge/FAQ integrity snapshot
+ */
+export const fetchAdminIntegrity = <ThrowOnError extends boolean = true>(options?: Options<FetchAdminIntegrityData, ThrowOnError>): RequestResult<FetchAdminIntegrityResponses, FetchAdminIntegrityErrors, ThrowOnError> => (options?.client ?? client).get<FetchAdminIntegrityResponses, FetchAdminIntegrityErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/admin/integrity',
+    ...options
+});
+
+/**
+ * List repos with FAQ counts for export
+ */
+export const fetchAdminFaqRepos = <ThrowOnError extends boolean = true>(options?: Options<FetchAdminFaqReposData, ThrowOnError>): RequestResult<FetchAdminFaqReposResponses, FetchAdminFaqReposErrors, ThrowOnError> => (options?.client ?? client).get<FetchAdminFaqReposResponses, FetchAdminFaqReposErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/admin/faq/repos',
+    ...options
+});
+
+/**
+ * Batch export FAQ for selected repos
+ */
+export const exportAdminFaq = <ThrowOnError extends boolean = true>(options: Options<ExportAdminFaqData, ThrowOnError>): RequestResult<ExportAdminFaqResponses, ExportAdminFaqErrors, ThrowOnError> => (options.client ?? client).post<ExportAdminFaqResponses, ExportAdminFaqErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/admin/faq/export',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List admin audit logs
+ */
+export const fetchAdminAuditLogs = <ThrowOnError extends boolean = true>(options?: Options<FetchAdminAuditLogsData, ThrowOnError>): RequestResult<FetchAdminAuditLogsResponses, FetchAdminAuditLogsErrors, ThrowOnError> => (options?.client ?? client).get<FetchAdminAuditLogsResponses, FetchAdminAuditLogsErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/admin/audit-logs',
+    ...options
+});
+
+/**
+ * List community users (may be empty)
+ */
+export const fetchAdminUsers = <ThrowOnError extends boolean = true>(options?: Options<FetchAdminUsersData, ThrowOnError>): RequestResult<FetchAdminUsersResponses, FetchAdminUsersErrors, ThrowOnError> => (options?.client ?? client).get<FetchAdminUsersResponses, FetchAdminUsersErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/admin/users',
+    ...options
 });

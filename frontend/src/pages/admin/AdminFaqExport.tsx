@@ -1,38 +1,56 @@
 import { Alert, Button, Checkbox, Radio, Table, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useState } from 'react'
-import { faqRepoOptions } from '../../../../frontend/src/mock/adminData'
-import type { FaqRepoOption } from '../../../../frontend/src/mock/adminData'
+import { useEffect, useState } from 'react'
+import {
+  exportAdminFaq,
+  fetchAdminFaqRepos,
+  type AdminFaqRepoOption,
+} from '../../api/generated'
+import { adminClient } from '../../lib/AdminAxios'
 
 export default function AdminFaqExport() {
-  const [selected, setSelected] = useState<string[]>(faqRepoOptions.map((r) => r.repoFullName))
+  const [repos, setRepos] = useState<AdminFaqRepoOption[]>([])
+  const [selected, setSelected] = useState<string[]>([])
   const [format, setFormat] = useState<'markdown' | 'json'>('markdown')
+  const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const columns: ColumnsType<FaqRepoOption> = [
+  useEffect(() => {
+    setLoading(true)
+    fetchAdminFaqRepos({ client: adminClient })
+      .then(({ data }) => {
+        setRepos(data.items)
+        setSelected(data.items.map((r) => r.repoId))
+        setError(null)
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : '加载失败'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const columns: ColumnsType<AdminFaqRepoOption> = [
     { title: '仓库', dataIndex: 'repoFullName' },
     { title: 'FAQ 条目', dataIndex: 'faqCount', width: 100 },
     { title: '记忆条目', dataIndex: 'memoryCount', width: 100 },
-    { title: '最近更新', dataIndex: 'lastUpdated', width: 200 },
+    { title: '最近更新', dataIndex: 'lastUpdated', width: 200, render: (v) => v || '—' },
   ]
 
   const toggleAll = (checked: boolean) => {
-    setSelected(checked ? faqRepoOptions.map((r) => r.repoFullName) : [])
+    setSelected(checked ? repos.map((r) => r.repoId) : [])
   }
 
-  const exportFaq = () => {
+  const exportFaq = async () => {
     if (!selected.length) {
       message.warning('请至少选择一个仓库')
       return
     }
     setExporting(true)
-    setTimeout(() => {
-      const content =
-        format === 'markdown'
-          ? `# RepoPilot FAQ 导出\n\n${selected.map((r) => `## ${r}\n- 演示 FAQ 内容\n`).join('\n')}`
-          : JSON.stringify({ repos: selected, exportedAt: new Date().toISOString() }, null, 2)
-
-      const blob = new Blob([content], {
+    try {
+      const { data } = await exportAdminFaq({
+        client: adminClient,
+        body: { repoIds: selected, format },
+      })
+      const blob = new Blob([data.content], {
         type: format === 'markdown' ? 'text/markdown' : 'application/json',
       })
       const url = URL.createObjectURL(blob)
@@ -41,10 +59,12 @@ export default function AdminFaqExport() {
       a.download = `repopilot-faq-export.${format === 'markdown' ? 'md' : 'json'}`
       a.click()
       URL.revokeObjectURL(url)
-
+      message.success(`已导出 ${data.repoCount} 个仓库、${data.itemCount} 条 FAQ`)
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '导出失败')
+    } finally {
       setExporting(false)
-      message.success(`已导出 ${selected.length} 个仓库的 FAQ（演示文件）`)
-    }, 800)
+    }
   }
 
   return (
@@ -54,18 +74,20 @@ export default function AdminFaqExport() {
         <p>选择仓库并导出统一 FAQ 文档，支持 Markdown / JSON 格式</p>
       </div>
 
+      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
+
       <Alert
         type="info"
         showIcon
-        message="导出内容为演示数据"
-        description="正式环境将从各仓库长期记忆与 FAQ 库聚合生成文档。"
+        message="数据来自各仓库 GraphRAG FAQ 聚类结果"
+        description="请先在知识库页生成 FAQ；此处聚合 repo_faq_items 真实数据。"
         style={{ marginBottom: 16 }}
       />
 
       <div className="admin-toolbar">
         <Checkbox
-          checked={selected.length === faqRepoOptions.length}
-          indeterminate={selected.length > 0 && selected.length < faqRepoOptions.length}
+          checked={selected.length > 0 && selected.length === repos.length}
+          indeterminate={selected.length > 0 && selected.length < repos.length}
           onChange={(e) => toggleAll(e.target.checked)}
         >
           全选仓库
@@ -81,14 +103,16 @@ export default function AdminFaqExport() {
 
       <Table
         className="admin-card"
+        loading={loading}
         rowSelection={{
           selectedRowKeys: selected,
           onChange: (keys) => setSelected(keys as string[]),
         }}
         columns={columns}
-        dataSource={faqRepoOptions}
-        rowKey="repoFullName"
+        dataSource={repos}
+        rowKey="repoId"
         pagination={false}
+        locale={{ emptyText: '暂无已索引仓库' }}
       />
     </div>
   )

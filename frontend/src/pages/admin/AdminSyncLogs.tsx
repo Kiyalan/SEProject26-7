@@ -1,8 +1,8 @@
-import { Input, Select, Table, Tag } from 'antd'
+import { Alert, Input, Select, Table, Tag } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useMemo, useState } from 'react'
-import { syncTaskLogs } from '../../../../frontend/src/mock/adminData'
-import type { SyncTaskLog } from '../../../../frontend/src/mock/adminData'
+import { useEffect, useState } from 'react'
+import { fetchAdminSyncTasks, type AdminSyncTask } from '../../api/generated'
+import { adminClient } from '../../lib/AdminAxios'
 
 const statusOptions = [
   { value: 'all', label: '全部状态' },
@@ -12,13 +12,13 @@ const statusOptions = [
   { value: 'paused', label: '暂停' },
 ]
 
-const triggerLabel: Record<SyncTaskLog['trigger'], string> = {
+const triggerLabel: Record<AdminSyncTask['trigger'], string> = {
   manual: '手动',
   webhook: 'Webhook',
   scheduled: '定时',
 }
 
-const statusTag: Record<SyncTaskLog['status'], { color: string; label: string }> = {
+const statusTag: Record<AdminSyncTask['status'], { color: string; label: string }> = {
   success: { color: 'green', label: '成功' },
   running: { color: 'blue', label: '进行中' },
   failed: { color: 'red', label: '失败' },
@@ -28,32 +28,38 @@ const statusTag: Record<SyncTaskLog['status'], { color: string; label: string }>
 export default function AdminSyncLogs() {
   const [status, setStatus] = useState('all')
   const [keyword, setKeyword] = useState('')
+  const [rows, setRows] = useState<AdminSyncTask[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const filtered = useMemo(() => {
-    return syncTaskLogs.filter((row) => {
-      const matchStatus = status === 'all' || row.status === status
-      const matchKeyword =
-        !keyword ||
-        row.repoFullName.toLowerCase().includes(keyword.toLowerCase()) ||
-        row.id.toLowerCase().includes(keyword.toLowerCase())
-      return matchStatus && matchKeyword
+  useEffect(() => {
+    setLoading(true)
+    fetchAdminSyncTasks({
+      client: adminClient,
+      query: { status, keyword: keyword || undefined, limit: 100 },
     })
+      .then(({ data }) => {
+        setRows(data.items)
+        setError(null)
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : '加载失败'))
+      .finally(() => setLoading(false))
   }, [status, keyword])
 
-  const columns: ColumnsType<SyncTaskLog> = [
-    { title: '任务 ID', dataIndex: 'id', width: 100 },
+  const columns: ColumnsType<AdminSyncTask> = [
+    { title: '任务 ID', dataIndex: 'id', width: 120, ellipsis: true },
     { title: '仓库', dataIndex: 'repoFullName' },
     {
       title: '触发方式',
       dataIndex: 'trigger',
       width: 100,
-      render: (t: SyncTaskLog['trigger']) => triggerLabel[t],
+      render: (t: AdminSyncTask['trigger']) => triggerLabel[t],
     },
     {
       title: '状态',
       dataIndex: 'status',
       width: 90,
-      render: (s: SyncTaskLog['status']) => {
+      render: (s: AdminSyncTask['status']) => {
         const t = statusTag[s]
         return <Tag color={t.color}>{t.label}</Tag>
       },
@@ -73,31 +79,31 @@ export default function AdminSyncLogs() {
     <div className="admin-page">
       <div className="admin-page-header">
         <h1>同步任务日志</h1>
-        <p>查看全平台仓库同步记录，支持按状态与仓库名筛选</p>
+        <p>查看全平台知识库构建/同步记录（来自 knowledge_build_tasks）</p>
       </div>
 
+      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
+
       <div className="admin-toolbar">
-        <Select
-          value={status}
-          onChange={setStatus}
-          options={statusOptions}
-          style={{ width: 140 }}
-        />
-        <Input
-          placeholder="搜索仓库或任务 ID"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+        <Select value={status} onChange={setStatus} options={statusOptions} style={{ width: 140 }} />
+        <Input.Search
           allowClear
+          placeholder="按仓库名 / 任务 ID 筛选"
+          onSearch={setKeyword}
+          onChange={(e) => {
+            if (!e.target.value) setKeyword('')
+          }}
           style={{ width: 260 }}
         />
       </div>
 
       <Table
         className="admin-card"
-        columns={columns}
-        dataSource={filtered}
         rowKey="id"
-        pagination={{ pageSize: 8, showTotal: (t) => `共 ${t} 条` }}
+        loading={loading}
+        columns={columns}
+        dataSource={rows}
+        pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
       />
     </div>
   )

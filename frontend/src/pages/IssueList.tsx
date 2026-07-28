@@ -62,11 +62,11 @@ export default function IssueList() {
     return issues.filter((issue) => analyses[issue.id]?.type === typeFilter)
   }, [issues, analyses, typeFilter])
 
-  const handleAnalyzeOne = async (issue: GithubIssue) => {
+  const handleAnalyzeOne = async (issue: GithubIssue, force = false) => {
     if (!currentRepoId) return
     try {
       const { data: analysis } = await analyzeIssue({
-        body: { repoId: currentRepoId, issue },
+        body: { repoId: currentRepoId, issue, force },
       })
       setAnalyses((prev) => ({ ...prev, [issue.id]: analysis }))
     } catch (err) {
@@ -148,9 +148,13 @@ export default function IssueList() {
       width: 180,
       render: (_, record) => (
         <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" className="gh-btn gh-btn-sm" onClick={() => handleAnalyzeOne(record)}>
+          <button
+            type="button"
+            className="gh-btn gh-btn-sm"
+            onClick={() => handleAnalyzeOne(record, Boolean(analyses[record.id]))}
+          >
             <RocketIcon size={12} />
-            分析
+            {analyses[record.id] ? '重分析' : '分析'}
           </button>
           <button
             type="button"
