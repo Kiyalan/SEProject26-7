@@ -77,13 +77,31 @@ class KnowledgeQueryServiceTest {
     }
 
     @Test
+    void routesCodeQuestionsToGraphRagContexts() {
+        KnowledgeService knowledge = mock(KnowledgeService.class);
+        PortfolioService portfolio = mock(PortfolioService.class);
+        when(knowledge.graphRagContexts(eq("repo"), eq("owner"), anyString(), anyInt()))
+                .thenReturn(List.of(context("codewiki/ask", "graph_rag_answer")));
+        KnowledgeQueryService service = new KnowledgeQueryService(knowledge, portfolio);
+
+        KnowledgeQueryService.QueryResult result =
+                service.retrieve("repo", "JWT Token 校验是怎么实现的？", "owner");
+
+        assertThat(result.intent()).contains("code");
+        assertThat(result.contexts())
+                .extracting(row -> row.get("sourceType"))
+                .contains("graph_rag_answer");
+        verify(knowledge).graphRagContexts(eq("repo"), eq("owner"), anyString(), anyInt());
+    }
+
+    @Test
     void combinesOverviewApiAndDeploymentSourcesForCompoundQuestion() {
         KnowledgeService knowledge = mock(KnowledgeService.class);
         PortfolioService portfolio = mock(PortfolioService.class);
         when(knowledge.repositoryOverviewContext(eq("repo"), eq("owner")))
                 .thenReturn(context("knowledge/repository-overview", "repository_overview"));
-        when(knowledge.apiSpecificationContexts(eq("repo"), eq("owner"), eq(100)))
-                .thenReturn(List.of(context("contract/openapi.json", "api_spec")));
+        when(knowledge.graphRagContexts(anyString(), anyString(), anyString(), anyInt()))
+                .thenReturn(List.of(context("codewiki/graph-explore", "graph_explore")));
         when(knowledge.retrieveChunksByPathHints(anyString(), anyString(), anyString(), anyList(), anyInt()))
                 .thenReturn(List.of(context("backend/run.ps1", "code")));
         KnowledgeQueryService service = new KnowledgeQueryService(knowledge, portfolio);
@@ -94,7 +112,7 @@ class KnowledgeQueryServiceTest {
         assertThat(result.intent()).contains("overview", "api", "deployment");
         assertThat(result.contexts())
                 .extracting(row -> row.get("sourceType"))
-                .contains("repository_overview", "api_spec", "code");
+                .contains("repository_overview", "graph_explore");
     }
 
     private static Map<String, Object> context(String file, String sourceType) {

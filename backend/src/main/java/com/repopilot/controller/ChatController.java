@@ -11,6 +11,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @RestController
 @RequestMapping("/api")
@@ -19,6 +21,7 @@ public class ChatController {
     private final KnowledgeQueryService queryService;
     private final LlmService llmService;
     private final RepoAuthorizationService authorizationService;
+    private final ExecutorService chatExecutor = Executors.newCachedThreadPool();
 
     public ChatController(KnowledgeQueryService queryService, LlmService llmService,
                           RepoAuthorizationService authorizationService) {
@@ -63,8 +66,27 @@ public class ChatController {
         if (message.length() > 2000) {
             throw new IllegalArgumentException("message 最长 2000 字符");
         }
-        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message, ownerLogin, token);
+
+        // Return SSE immediately; retrieve used to block the HTTP thread before any event,
+        // which made the UI sit on "responding" with no feedback (often CodeWiki/LLM latency).
+        SseEmitter emitter = new SseEmitter(300_000L);
         String questionType = KnowledgeUtils.classifyQuestion(message);
-        return llmService.streamChat(repoId, message, questionType, query.intent(), query.contexts());
+        chatExecutor.execute(() -> {
+            try {
+                llmService.sendStatus(emitter, "正在检索 GraphRAG 上下文…");
+                KnowledgeQueryService.QueryResult query =
+                        queryService.retrieve(repoId, message, ownerLogin, token);
+                llmService.sendStatus(emitter, "检索完成，正在生成回答…");
+                llmService.streamInto(emitter, repoId, message, questionType, query.intent(), query.contexts());
+            } catch (Exception ex) {
+                try {
+                    llmService.sendError(emitter, ex.getMessage() == null ? "问答失败" : ex.getMessage());
+                } catch (Exception ignored) {
+                    // ignore
+                }
+                emitter.completeWithError(ex);
+            }
+        });
+        return emitter;
     }
 }

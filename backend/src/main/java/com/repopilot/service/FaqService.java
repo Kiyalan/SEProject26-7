@@ -128,6 +128,45 @@ public class FaqService {
         return result;
     }
 
+    /** Persist one chat Q&A turn into the repo FAQ list (manual curation). */
+    @Transactional
+    public Map<String, Object> addFromChat(String repoId, String question, String answer, String category) {
+        String q = question == null ? "" : question.trim();
+        String a = answer == null ? "" : answer.trim();
+        if (q.isBlank() || a.isBlank()) {
+            throw new IllegalArgumentException("question 与 answer 不能为空");
+        }
+        if (q.length() > 500) {
+            q = q.substring(0, 500) + "…";
+        }
+        if (a.length() > 8000) {
+            a = a.substring(0, 8000) + "…";
+        }
+        String cat = (category == null || category.isBlank()) ? "chat" : category.trim();
+        if (cat.length() > 32) {
+            cat = cat.substring(0, 32);
+        }
+        String now = LocalDateTime.now(ZoneOffset.UTC).format(TS);
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        jdbc.update("""
+                INSERT INTO repo_faq_items
+                (id, repo_id, category, question, answer, related_files, confidence, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                id, repoId, cat, q, a, "[]", 0.8, now);
+
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", id);
+        item.put("category", cat);
+        item.put("question", q);
+        item.put("answer", a);
+        item.put("relatedFiles", List.of());
+        item.put("confidence", 0.8);
+        item.put("updatedAt", now);
+        item.put("source", "chat");
+        return item;
+    }
+
     private Map<String, Object> buildItem(String repoId, TopicSeed seed,
                                           List<Map<String, Object>> evidence, String now) {
         List<Map<String, Object>> related = evidence.stream().limit(3)

@@ -82,28 +82,33 @@ public class KnowledgeQueryService {
             }
             if (intents.contains("overview")) {
                 contexts.add(knowledgeService.repositoryOverviewContext(repoId, ownerLogin));
-                contexts.addAll(knowledgeService.retrieveChunksByPathHints(
-                        repoId, ownerLogin, question + " 项目说明 README",
-                        List.of("readme", "openapi", "package.json", "pom.xml"), 8));
+                contexts.addAll(knowledgeService.graphRagContexts(
+                        repoId, ownerLogin, question + " 项目说明 README 架构", 8));
             }
             if (intents.contains("api")) {
-                contexts.addAll(knowledgeService.apiSpecificationContexts(repoId, ownerLogin, 100));
-                if (contexts.stream().noneMatch(row -> "api_spec".equals(row.get("sourceType")))) {
+                contexts.addAll(knowledgeService.graphRagContexts(
+                        repoId, ownerLogin, question + " API endpoints controllers OpenAPI", 12));
+                if (contexts.stream().noneMatch(row ->
+                        "graph_rag_answer".equals(row.get("sourceType"))
+                                || "graph_explore".equals(row.get("sourceType"))
+                                || "api_spec".equals(row.get("sourceType")))) {
                     contexts.addAll(knowledgeService.retrieveChunksByPathHints(
-                            repoId, ownerLogin, question + " controller endpoint operationId", API_PATH_HINTS, 15));
+                            repoId, ownerLogin, question + " controller endpoint operationId", API_PATH_HINTS, 8));
                 }
             }
             if (intents.contains("deployment")) {
+                contexts.addAll(knowledgeService.graphRagContexts(
+                        repoId, ownerLogin, question + " 启动 部署 docker compose", 8));
                 contexts.addAll(knowledgeService.retrieveChunksByPathHints(
-                        repoId, ownerLogin, question + " 启动 配置 端口 环境变量", DEPLOY_PATH_HINTS, 15));
+                        repoId, ownerLogin, question + " 启动 配置 端口 环境变量", DEPLOY_PATH_HINTS, 8));
             }
-            // Avoid drowning structured answers in random frontend page chunks.
+            // Prefer GraphRAG (explore + communities + /ask). Avoid raw chunk-only retrieval for chat.
             if ((intents.contains("code")
                     && !intents.contains("portfolio")
                     && !intents.contains("history")
                     && !intents.contains("branches"))
                     || contexts.isEmpty()) {
-                contexts.addAll(knowledgeService.retrieveChunks(repoId, ownerLogin, question, null, 10));
+                contexts.addAll(knowledgeService.graphRagContexts(repoId, ownerLogin, question, 16));
             }
         } catch (Exception ex) {
             Map<String, Object> notice = new LinkedHashMap<>();
@@ -231,6 +236,9 @@ public class KnowledgeQueryService {
         String sourceType = String.valueOf(row.getOrDefault("sourceType", ""));
         if ("portfolio".equals(sourceType) || "commit_history".equals(sourceType)
                 || "branch_list".equals(sourceType)
+                || "graph_explore".equals(sourceType) || "graph_rag_answer".equals(sourceType)
+                || "community".equals(sourceType) || "graph_nodes".equals(sourceType)
+                || "graph_relationships".equals(sourceType)
                 || "system".equals(sourceType) || "repository_overview".equals(sourceType)) {
             return false;
         }

@@ -246,6 +246,22 @@ public class CodeWikiClient {
                 JsonNode.class, "graphrag_retrieve");
     }
 
+    /** Full GraphRAG Q&A (communities + graph + sources). Requires CodeWiki LLM for synthesis. */
+    public JsonNode ask(String repoId, String question, int maxHops) {
+        return post(repo(repoId) + "/ask",
+                new AskRequest(question, "graph_rag", maxHops, true, true),
+                JsonNode.class, "ask");
+    }
+
+    public JsonNode communities(String repoId) {
+        return get(repo(repoId) + "/communities", JsonNode.class, "communities");
+    }
+
+    /** Full AST/GraphRAG graph (nodes + edges + communities) from CodeWiki. */
+    public JsonNode fullGraph(String repoId) {
+        return get(repo(repoId) + "/graph", JsonNode.class, "graph_full");
+    }
+
     public JsonNode graphStatus(String repoId) {
         return get(repo(repoId) + "/graph/status", JsonNode.class, "graph_status");
     }
@@ -450,4 +466,5 @@ public class CodeWikiClient {
     public record UpdateRequest(boolean refresh_chunks, boolean name_communities, boolean regenerate_wiki) {}
     public record GraphBuildRequest(boolean include_embeddings) {}
     public record RetrieveRequest(String query, int max_hops, boolean include_embeddings) {}
+    public record AskRequest(String question, String mode, int max_hops, boolean include_sources, boolean include_graph) {}
 }

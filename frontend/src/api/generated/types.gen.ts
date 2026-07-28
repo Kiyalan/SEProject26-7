@@ -311,6 +311,13 @@ export type KnowledgeOverview = {
     indexedAt?: string;
     fileCount: number;
     chunkCount: number;
+    /** Local working-tree approximate LOC (GitHub has no native total LOC field). */
+    lineCount?: number;
+    sourceFileCount?: number;
+    lineCountByLanguage?: {
+        [key: string]: number;
+    };
+    lineCountNote?: string;
     tree: Array<KnowledgeNode>;
     modules: Array<{
         name: string;
@@ -358,8 +365,16 @@ export type KnowledgeGraphStatus = {
     edgeCount: number;
     communityCount: number;
     chunkCount: number;
+    fileCount?: number;
+    nodesByType?: {
+        [key: string]: number;
+    };
+    edgesByType?: {
+        [key: string]: number;
+    };
     indexedAt?: string;
     message?: string;
+    inspectHint?: string;
 };
 
 export type KnowledgeGraphNode = {

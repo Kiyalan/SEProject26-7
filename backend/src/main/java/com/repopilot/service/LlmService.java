@@ -114,12 +114,12 @@ public class LlmService {
                 : intent.contains("history")
                 ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；是否对当前 HEAD「过时」证据不足时标为无法判断，不要编造。"
                 : intent.contains("api")
-                ? "接口问题优先依据 api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权；不要只列前端函数名。"
+                ? "接口问题优先依据 graph_rag_answer / graph_explore / community / api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权；不要只列前端函数名。"
                 : intent.contains("deployment")
                 ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署；缺少 Docker 或生产文档时明确指出。"
-                : "优先使用结构化仓库信息和相关源码回答。";
+                : "优先使用 GraphRAG 上下文（graph_rag_answer、graph_explore、community、graph_nodes），依据社区摘要与图关系回答；不要依赖杂乱原始 chunk。";
         String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径、仓库全名、分支名或 commit SHA。" + intentInstruction;
+                + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。" + intentInstruction;
         String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
                 + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
                 + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
@@ -286,7 +286,36 @@ public class LlmService {
 
     public SseEmitter streamChat(String repoId, String message, String questionType,
                                   String intent, List<Map<String, Object>> contexts) {
-        SseEmitter emitter = new SseEmitter(300_000L); // 5 分钟超时
+        SseEmitter emitter = new SseEmitter(300_000L);
+        streamExecutor.execute(() -> {
+            try {
+                streamInto(emitter, repoId, message, questionType, intent, contexts);
+            } catch (Exception ex) {
+                try {
+                    sendError(emitter, ex.getMessage());
+                } catch (Exception ignored) {}
+                emitter.completeWithError(ex);
+            }
+        });
+        return emitter;
+    }
+
+    public void sendStatus(SseEmitter emitter, String message) throws IOException {
+        emitter.send(SseEmitter.event()
+                .name("status")
+                .data(mapper.writeValueAsString(Map.of("message", message))));
+    }
+
+    public void sendError(SseEmitter emitter, String message) throws IOException {
+        emitter.send(SseEmitter.event()
+                .name("error")
+                .data(mapper.writeValueAsString(Map.of(
+                        "message", message == null || message.isBlank() ? "问答失败" : message))));
+    }
+
+    /** Drive an already-opened SSE emitter (retrieve may have run in caller). */
+    public void streamInto(SseEmitter emitter, String repoId, String message, String questionType,
+                           String intent, List<Map<String, Object>> contexts) throws Exception {
         List<Map<String, Object>> citations = contexts.stream().limit(3)
                 .map(c -> Map.<String, Object>of("file", c.get("file"), "line", c.get("line")))
                 .toList();
@@ -296,48 +325,34 @@ public class LlmService {
             String fallback = contexts.isEmpty()
                     ? "未检索到可用知识库证据。请确认已构建 GraphRAG，或换一种问法后重试。"
                     : buildFallback(message, questionType, contexts, intent);
-            try {
-                emitter.send(SseEmitter.event()
-                        .name("data")
-                        .data(mapper.writeValueAsString(Map.of(
-                                "content", fallback,
-                                "questionType", questionType,
-                                "citations", citations,
-                                "llmEnabled", false,
-                                "intent", intent,
-                                "done", true
-                        ))));
-                emitter.complete();
-            } catch (IOException e) {
-                emitter.completeWithError(e);
-            }
-            return emitter;
+            emitter.send(SseEmitter.event()
+                    .name("meta")
+                    .data(mapper.writeValueAsString(Map.of(
+                            "questionType", questionType,
+                            "citations", citations,
+                            "llmEnabled", false,
+                            "intent", intent
+                    ))));
+            emitter.send(SseEmitter.event()
+                    .name("token")
+                    .data(mapper.writeValueAsString(Map.of("content", fallback))));
+            emitter.send(SseEmitter.event()
+                    .name("done")
+                    .data(mapper.writeValueAsString(Map.of("answer", fallback))));
+            emitter.complete();
+            return;
         }
 
-        streamExecutor.execute(() -> {
-            try {
-                // 发送元数据
-                emitter.send(SseEmitter.event()
-                        .name("meta")
-                        .data(mapper.writeValueAsString(Map.of(
-                                "questionType", questionType,
-                                "citations", citations,
-                                "llmEnabled", true,
-                                "intent", intent
-                        ))));
-                streamCompletion(emitter, message, questionType, contexts, intent);
-                emitter.complete();
-            } catch (Exception ex) {
-                try {
-                    emitter.send(SseEmitter.event()
-                            .name("error")
-                            .data(ex.getMessage()));
-                } catch (IOException ignored) {}
-                emitter.completeWithError(ex);
-            }
-        });
-
-        return emitter;
+        emitter.send(SseEmitter.event()
+                .name("meta")
+                .data(mapper.writeValueAsString(Map.of(
+                        "questionType", questionType,
+                        "citations", citations,
+                        "llmEnabled", true,
+                        "intent", intent
+                ))));
+        streamCompletion(emitter, message, questionType, contexts, intent);
+        emitter.complete();
     }
 
     private void streamCompletion(SseEmitter emitter, String question, String questionType,
@@ -356,13 +371,13 @@ public class LlmService {
                 : intent.contains("history")
                 ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；证据不足时标为无法判断。"
                 : intent.contains("api")
-                ? "接口问题优先依据 api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权。"
+                ? "接口问题优先依据 graph_rag_answer / graph_explore / community 上下文，列出 HTTP 方法、路径、用途和鉴权。"
                 : intent.contains("deployment")
                 ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署。"
-                : "优先使用结构化仓库信息和相关源码回答。";
+                : "优先使用 GraphRAG 上下文（graph_rag_answer、graph_explore、community、graph_nodes），依据社区摘要与图关系回答；不要依赖杂乱原始 chunk。";
 
         String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径、仓库全名、分支名或 commit SHA。" + intentInstruction;
+                + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。" + intentInstruction;
         String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
                 + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
                 + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
@@ -409,9 +424,7 @@ public class LlmService {
             } catch (Exception ignored) {
                 // keep empty
             }
-            emitter.send(SseEmitter.event()
-                    .name("error")
-                    .data(formatLlmHttpError(responseCode, errBody, llm.model())));
+            sendError(emitter, formatLlmHttpError(responseCode, errBody, llm.model()));
             return;
         }
 
@@ -427,9 +440,7 @@ public class LlmService {
                     try {
                         JsonNode chunk = mapper.readTree(data);
                         if (chunk.has("error")) {
-                            emitter.send(SseEmitter.event()
-                                    .name("error")
-                                    .data(formatLlmApiError(chunk.path("error"), llm.model())));
+                            sendError(emitter, formatLlmApiError(chunk.path("error"), llm.model()));
                             return;
                         }
                         JsonNode delta = chunk.path("choices").path(0).path("delta");
@@ -448,10 +459,8 @@ public class LlmService {
                 }
             }
             if (fullContent.isEmpty()) {
-                emitter.send(SseEmitter.event()
-                        .name("error")
-                        .data("LLM 返回了空内容（模型: " + llm.model()
-                                + "）。请确认模型可用，推荐 openai/gpt-oss-20b:free"));
+                sendError(emitter, "LLM 返回了空内容（模型: " + llm.model()
+                        + "）。请确认模型可用，推荐 openai/gpt-oss-20b:free");
                 return;
             }
             // 发送完成信号

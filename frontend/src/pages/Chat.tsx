@@ -1,12 +1,21 @@
 import { projectDisplayName } from '../config/BaseConfig'
-import { Alert, Input, Spin } from 'antd'
-import { PaperAirplaneIcon, PersonIcon, SyncIcon } from '@primer/octicons-react'
-import { useEffect, useRef, useState } from 'react'
+import { Alert, Input, Spin, message as antdMessage } from 'antd'
+import { PaperAirplaneIcon, PersonIcon, SyncIcon, BookmarkIcon } from '@primer/octicons-react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
 import { fetchKnowledge, fetchLlmConfig } from '../api/generated'
 import { getToken } from '../lib/AuthAxios'
 import type { ChatMessage } from '../lib/FrontendTypes'
+import {
+  beginChatRequest,
+  endChatRequest,
+  getChatSession,
+  isCurrentChatRequest,
+  patchChatSession,
+  subscribeChatSession,
+  updateChatMessages,
+} from '../lib/chatSessionStore'
 
 const questionTypeMap: Record<string, { label: string; className: string }> = {
   what: { label: 'What', className: 'gh-label gh-label-blue' },
@@ -20,6 +29,8 @@ const intentLabels: Record<string, string> = {
   api: '接口',
   deployment: '部署',
   overview: '概览',
+  branches: '分支',
+  portfolio: '多仓库',
 }
 
 function formatIntent(intent?: string) {
@@ -33,17 +44,38 @@ function formatIntent(intent?: string) {
 
 const MAX_QUESTION_LENGTH = 2000
 
+function useChatSession(repoId: string) {
+  const id = repoId || '__none__'
+  return useSyncExternalStore(
+    (onStoreChange) => subscribeChatSession(id, onStoreChange),
+    () => getChatSession(id),
+    () => getChatSession(id),
+  )
+}
+
+function parseSseData(raw: string): unknown {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+function errorText(data: unknown): string {
+  if (typeof data === 'string') return data
+  if (data && typeof data === 'object' && 'message' in data) {
+    return String((data as { message: unknown }).message)
+  }
+  return '问答失败'
+}
+
 export default function Chat() {
   const { currentRepoId, setCurrentRepo, repoList } = useRepoContext()
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
+  const session = useChatSession(currentRepoId || '__none__')
   const [llmEnabled, setLlmEnabled] = useState(false)
   const [knowledgeReady, setKnowledgeReady] = useState(false)
-  const [lastFailedQuestion, setLastFailedQuestion] = useState<string | null>(null)
+  const [savingFaqId, setSavingFaqId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const requestSeq = useRef(0)
-  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     fetchLlmConfig()
@@ -52,14 +84,6 @@ export default function Chat() {
   }, [])
 
   useEffect(() => {
-    requestSeq.current += 1
-    // 终止上一次请求
-    abortRef.current?.abort()
-    abortRef.current = null
-    setMessages([])
-    setInput('')
-    setLastFailedQuestion(null)
-    setLoading(false)
     if (!currentRepoId) {
       setKnowledgeReady(false)
       return
@@ -68,7 +92,6 @@ export default function Chat() {
       .then(({ data }) => {
         const chunks = Number(data.chunkCount || 0)
         const nodes = Number((data as { graphStatus?: { nodeCount?: number } }).graphStatus?.nodeCount || 0)
-        // Chunks power retrieve; nodes alone still mean the graph build finished.
         setKnowledgeReady(data.status === 'ready' && (chunks > 0 || nodes > 0))
       })
       .catch(() => setKnowledgeReady(false))
@@ -76,13 +99,33 @@ export default function Chat() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+  }, [session.messages, session.loading, session.statusMessage])
+
+  const ensureAssistantBubble = (assistId: string, patch: Partial<ChatMessage> = {}) => {
+    if (!currentRepoId) return
+    updateChatMessages(currentRepoId, (prev) => {
+      if (prev.some((m) => m.id === assistId)) {
+        return prev.map((m) => (m.id === assistId ? { ...m, ...patch } : m))
+      }
+      return [
+        ...prev,
+        {
+          id: assistId,
+          role: 'assistant',
+          content: '',
+          streaming: true,
+          error: false,
+          ...patch,
+        },
+      ]
+    })
+  }
 
   const askStream = async (question: string) => {
     const trimmed = question.trim()
-    if (!trimmed || !currentRepoId || loading) return
+    if (!trimmed || !currentRepoId || session.loading) return
     if (trimmed.length > MAX_QUESTION_LENGTH) {
-      setMessages((prev) => [
+      updateChatMessages(currentRepoId, (prev) => [
         ...prev,
         {
           id: `a-${Date.now()}`,
@@ -94,22 +137,19 @@ export default function Chat() {
       return
     }
 
-    const seq = ++requestSeq.current
+    const { seq, controller } = beginChatRequest(currentRepoId)
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
       content: trimmed,
     }
-    setMessages((prev) => [...prev, userMsg])
-    setLoading(true)
-    setLastFailedQuestion(null)
+    updateChatMessages(currentRepoId, (prev) => [...prev, userMsg])
 
-    // 创建流式请求
-    const controller = new AbortController()
-    abortRef.current = controller
     const token = getToken()
     const assistId = `a-${Date.now()}`
-    let metaReceived = false
+    let accumulated = ''
+    let sawError = false
+    let gotDone = false
 
     try {
       const response = await fetch('/api/chat/stream', {
@@ -123,31 +163,31 @@ export default function Chat() {
       })
 
       if (!response.ok) {
-        const errorText = await response.text().catch(() => '问答失败')
-        if (seq !== requestSeq.current) return
-        setLastFailedQuestion(trimmed)
-        setMessages((prev) => [
-          ...prev,
-          { id: assistId, role: 'assistant', content: errorText, error: true },
-        ])
+        const errBody = await response.text().catch(() => '问答失败')
+        if (!isCurrentChatRequest(currentRepoId, seq)) return
+        ensureAssistantBubble(assistId, { content: errBody, error: true, streaming: false })
+        endChatRequest(currentRepoId, seq, trimmed)
         return
       }
 
       const reader = response.body?.getReader()
       if (!reader) {
-        if (seq !== requestSeq.current) return
-        setMessages((prev) => [...prev, { id: assistId, role: 'assistant', content: '无法读取流式响应', error: true }])
+        if (!isCurrentChatRequest(currentRepoId, seq)) return
+        ensureAssistantBubble(assistId, { content: '无法读取流式响应', error: true, streaming: false })
+        endChatRequest(currentRepoId, seq, trimmed)
         return
       }
 
+      // Show bubble immediately so status/tokens have a target even before meta
+      ensureAssistantBubble(assistId, { content: '' })
+
       const decoder = new TextDecoder()
       let buffer = ''
-      let accumulated = ''
-      let meta: { questionType?: string; citations?: unknown[]; intent?: string; llmEnabled?: boolean } = {}
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+        if (!isCurrentChatRequest(currentRepoId, seq)) return
         buffer += decoder.decode(value, { stream: true })
 
         const lines = buffer.split('\n')
@@ -161,122 +201,174 @@ export default function Chat() {
             continue
           }
           if (trimmedLine.startsWith('data:')) {
-            const json = trimmedLine.slice(5).trim()
-            try {
-              const event = JSON.parse(json)
+            const raw = trimmedLine.slice(5).trim()
+            const event = parseSseData(raw)
 
-              if (currentEvent === 'meta') {
-                meta = event
-                metaReceived = true
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: assistId,
-                    role: 'assistant',
-                    content: '',
-                    questionType: event.questionType,
-                    citations: event.citations,
-                    intent: event.intent,
-                    error: false,
-                    streaming: true,
-                  },
-                ])
-              } else if (currentEvent === 'token') {
-                accumulated += event.content
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistId
-                      ? { ...m, content: m.content + event.content, streaming: true }
-                      : m,
-                  ),
-                )
-              } else if (currentEvent === 'done') {
-                const finalContent = event.answer || accumulated
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistId
-                      ? { ...m, content: finalContent, streaming: false }
-                      : m,
-                  ),
-                )
-              } else if (currentEvent === 'error') {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistId
-                      ? { ...m, content: event, error: true, streaming: false }
-                      : m,
-                  ),
-                )
-              } else if (currentEvent === 'data') {
-                // 非流式回退：直接渲染完整内容
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistId
-                      ? { ...m, content: event.content ?? '', streaming: false, questionType: event.questionType, citations: event.citations, intent: event.intent }
-                      : m,
-                  ),
-                )
+            if (currentEvent === 'status') {
+              const msg =
+                event && typeof event === 'object' && 'message' in event
+                  ? String((event as { message: unknown }).message)
+                  : typeof event === 'string'
+                    ? event
+                    : '处理中…'
+              patchChatSession(currentRepoId, { statusMessage: msg })
+            } else if (currentEvent === 'meta') {
+              const meta = (event && typeof event === 'object' ? event : {}) as {
+                questionType?: string
+                citations?: ChatMessage['citations']
+                intent?: string
               }
-              currentEvent = ''
-            } catch {
-              // 跳过非 JSON 行
+              ensureAssistantBubble(assistId, {
+                questionType: meta.questionType as ChatMessage['questionType'],
+                citations: meta.citations,
+                intent: meta.intent,
+                streaming: true,
+                error: false,
+              })
+            } else if (currentEvent === 'token') {
+              const piece =
+                event && typeof event === 'object' && 'content' in event
+                  ? String((event as { content: unknown }).content)
+                  : ''
+              if (piece) {
+                accumulated += piece
+                ensureAssistantBubble(assistId, {
+                  content: accumulated,
+                  streaming: true,
+                  error: false,
+                })
+              }
+            } else if (currentEvent === 'done') {
+              gotDone = true
+              const finalContent =
+                event && typeof event === 'object' && 'answer' in event
+                  ? String((event as { answer: unknown }).answer || accumulated)
+                  : accumulated
+              accumulated = finalContent
+              ensureAssistantBubble(assistId, {
+                content: finalContent,
+                streaming: false,
+                error: false,
+              })
+            } else if (currentEvent === 'error') {
+              sawError = true
+              ensureAssistantBubble(assistId, {
+                content: errorText(event),
+                error: true,
+                streaming: false,
+              })
+            } else if (currentEvent === 'data') {
+              const payload = (event && typeof event === 'object' ? event : {}) as {
+                content?: string
+                questionType?: string
+                citations?: ChatMessage['citations']
+                intent?: string
+              }
+              accumulated = payload.content ?? accumulated
+              ensureAssistantBubble(assistId, {
+                content: accumulated,
+                streaming: false,
+                questionType: payload.questionType as ChatMessage['questionType'],
+                citations: payload.citations,
+                intent: payload.intent,
+              })
             }
+            currentEvent = ''
           }
         }
       }
 
-      // 确保 streaming 标记关闭
-      setMessages((prev) =>
-        prev.map((m) => (m.id === assistId ? { ...m, streaming: false } : m)),
-      )
-      if (!accumulated && seq === requestSeq.current) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistId
-              ? { ...m, content: 'LLM 返回了空响应，请重试', error: true }
-              : m,
-          ),
-        )
-      }
-    } catch (err) {
-      if (seq !== requestSeq.current) return
-      setLastFailedQuestion(trimmed)
-      if ((err as Error).name === 'AbortError') return
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: assistId,
-          role: 'assistant',
-          content: err instanceof Error ? err.message : '流式问答失败',
+      if (!isCurrentChatRequest(currentRepoId, seq)) return
+
+      if (!sawError && !accumulated && !gotDone) {
+        ensureAssistantBubble(assistId, {
+          content: '未收到有效回答。若长时间无响应，请检查 LLM 配置与 CodeWiki 是否可用。',
           error: true,
-        },
-      ])
-    } finally {
-      if (seq === requestSeq.current) {
-        setLoading(false)
-        abortRef.current = null
+          streaming: false,
+        })
+        endChatRequest(currentRepoId, seq, trimmed)
+        return
       }
+
+      endChatRequest(currentRepoId, seq, sawError ? trimmed : null)
+    } catch (err) {
+      if (!isCurrentChatRequest(currentRepoId, seq)) return
+      if ((err as Error).name === 'AbortError') {
+        endChatRequest(currentRepoId, seq, null)
+        return
+      }
+      ensureAssistantBubble(assistId, {
+        content: err instanceof Error ? err.message : '流式问答失败',
+        error: true,
+        streaming: false,
+      })
+      endChatRequest(currentRepoId, seq, trimmed)
     }
   }
 
   const handleSend = async () => {
-    const question = input.trim()
+    if (!currentRepoId) return
+    const question = session.input.trim()
     if (!question) return
-    setInput('')
+    patchChatSession(currentRepoId, { input: '' })
     await askStream(question)
   }
 
   const handleRetry = async () => {
-    if (!lastFailedQuestion) return
-    await askStream(lastFailedQuestion)
+    if (!session.lastFailedQuestion) return
+    await askStream(session.lastFailedQuestion)
   }
+
+  const addToFaq = async (assistantMsg: ChatMessage) => {
+    if (!currentRepoId || !assistantMsg.content.trim() || assistantMsg.error) return
+    const msgs = session.messages
+    const idx = msgs.findIndex((m) => m.id === assistantMsg.id)
+    let question = ''
+    for (let i = idx - 1; i >= 0; i -= 1) {
+      if (msgs[i].role === 'user') {
+        question = msgs[i].content
+        break
+      }
+    }
+    if (!question) {
+      antdMessage.warning('找不到对应的用户问题')
+      return
+    }
+    setSavingFaqId(assistantMsg.id)
+    try {
+      const token = getToken()
+      const res = await fetch(`/api/repos/${encodeURIComponent(currentRepoId)}/faq/items`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token ?? ''}`,
+        },
+        body: JSON.stringify({
+          question,
+          answer: assistantMsg.content,
+          category: 'chat',
+        }),
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '加入 FAQ 失败')
+        throw new Error(text)
+      }
+      antdMessage.success('已加入当前仓库 FAQ')
+    } catch (err) {
+      antdMessage.error(err instanceof Error ? err.message : '加入 FAQ 失败')
+    } finally {
+      setSavingFaqId(null)
+    }
+  }
+
+  const { messages, loading, statusMessage, lastFailedQuestion, input } = session
 
   return (
     <PageShell
       title="智能问答"
       description={
         llmEnabled
-          ? '基于知识库检索 + LLM 流式生成回答'
+          ? '基于 GraphRAG 检索 + LLM 流式生成；对话会保留在本会话，切页不丢失'
           : '检索摘要模式（配置 LLM_API_KEY 可启用大模型）'
       }
       actions={
@@ -347,11 +439,9 @@ export default function Chat() {
                     {item.intent && (
                       <span className="gh-label rp-intent">意图 · {formatIntent(item.intent)}</span>
                     )}
-                    {(item as ChatMessage & { emptyEvidence?: boolean }).emptyEvidence && (
-                      <span className="gh-label gh-label-orange">无证据</span>
-                    )}
+                    {item.emptyEvidence && <span className="gh-label gh-label-orange">无证据</span>}
                     {item.error && <span className="gh-label gh-label-red">失败</span>}
-                    {(item as ChatMessage & { streaming?: boolean }).streaming && (
+                    {item.streaming && (
                       <span className="gh-label gh-label-blue" style={{ animation: 'pulse 1s infinite' }}>
                         ● 生成中
                       </span>
@@ -364,6 +454,20 @@ export default function Chat() {
                       {c.line ? `:${c.line}` : ''}
                     </div>
                   ))}
+                  {item.role === 'assistant' && !item.error && !item.streaming && item.content.trim() && (
+                    <div style={{ marginTop: 8 }}>
+                      <button
+                        type="button"
+                        className="gh-btn gh-btn-sm"
+                        disabled={savingFaqId === item.id}
+                        onClick={() => addToFaq(item)}
+                        title="将本轮问答写入当前仓库 FAQ"
+                      >
+                        <BookmarkIcon size={12} />
+                        {savingFaqId === item.id ? '保存中…' : '加入 FAQ'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))
@@ -374,7 +478,7 @@ export default function Chat() {
               <Spin size="small" />
               <div>
                 <div className="rp-loading-pulse" style={{ fontWeight: 600 }}>
-                  {projectDisplayName} 正在检索并回答…
+                  {statusMessage || `${projectDisplayName} 正在检索并回答…`}
                 </div>
                 <div className="rp-typing" aria-hidden>
                   <span />
@@ -401,7 +505,9 @@ export default function Chat() {
               placeholder="例如：路由配置在哪里？如何运行测试？"
               value={input}
               maxLength={MAX_QUESTION_LENGTH}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                if (currentRepoId) patchChatSession(currentRepoId, { input: e.target.value })
+              }}
               onPressEnter={handleSend}
               disabled={loading}
             />

@@ -5,6 +5,7 @@ import { Tree } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
 import PageShell from '../components/layout/PageShell'
 import PortfolioPanel from '../components/PortfolioPanel'
+import KnowledgeForceGraph, { type GraphVizEdge, type GraphVizNode } from '../components/KnowledgeForceGraph'
 import { useRepoContext } from '../context/RepoContext'
 import {
   buildKnowledge,
@@ -33,6 +34,7 @@ import {
 } from '../api/generated'
 import type { KnowledgeNode } from '../lib/FrontendTypes'
 import { fetchRepoProgress, sleep } from '../lib/progress'
+import { authAxios } from '../lib/AuthAxios'
 
 const faqCategoryLabels: Record<string, string> = {
   overview: '概览',
@@ -41,6 +43,8 @@ const faqCategoryLabels: Record<string, string> = {
   deployment: '部署',
   architecture: '架构',
   troubleshooting: '排查',
+  contributors: '贡献者',
+  chat: '对话收录',
 }
 
 interface BuildPhase {
@@ -100,6 +104,20 @@ export default function Knowledge() {
   const [comparing, setComparing] = useState(false)
   const [policy, setPolicy] = useState<KnowledgePolicy | null>(null)
   const [graphStatus, setGraphStatus] = useState<KnowledgeGraphStatus | null>(null)
+  const [communities, setCommunities] = useState<Array<{ symbolName?: string; content?: string; score?: number }>>([])
+  const [fullGraph, setFullGraph] = useState<{
+    source?: string
+    codeWikiRepoId?: string
+    nodeCount?: number
+    edgeCount?: number
+    communityCount?: number
+    note?: string
+    nodes: GraphVizNode[]
+    edges: GraphVizEdge[]
+    communities?: Array<{ id?: string; name?: string; summary?: string }>
+  } | null>(null)
+  const [graphLoadError, setGraphLoadError] = useState<string | null>(null)
+  const [graphLoading, setGraphLoading] = useState(false)
   const [wiki, setWiki] = useState<KnowledgeWiki | null>(null)
   const [selectedWikiPageId, setSelectedWikiPageId] = useState('')
   const [generatingWiki, setGeneratingWiki] = useState(false)
@@ -179,6 +197,44 @@ export default function Knowledge() {
       fetchKnowledgeGraphStatus({ path: { repoId: currentRepoId } })
         .then(({ data }) => setGraphStatus(data))
         .catch(() => setGraphStatus(null))
+      authAxios
+        .get<{ items?: Array<{ symbolName?: string; content?: string; score?: number }> }>(
+          `/api/repos/${currentRepoId}/knowledge/communities`,
+        )
+        .then((res) => setCommunities(res.data.items ?? []))
+        .catch(() => setCommunities([]))
+      setGraphLoading(true)
+      setGraphLoadError(null)
+      authAxios
+        .get<{
+          source?: string
+          codeWikiRepoId?: string
+          nodeCount?: number
+          edgeCount?: number
+          communityCount?: number
+          note?: string
+          nodes?: GraphVizNode[]
+          edges?: GraphVizEdge[]
+          communities?: Array<{ id?: string; name?: string; summary?: string }>
+        }>(`/api/repos/${currentRepoId}/knowledge/graph`)
+        .then((res) => {
+          setFullGraph({
+            source: res.data.source,
+            codeWikiRepoId: res.data.codeWikiRepoId,
+            nodeCount: res.data.nodeCount,
+            edgeCount: res.data.edgeCount,
+            communityCount: res.data.communityCount,
+            note: res.data.note,
+            nodes: res.data.nodes ?? [],
+            edges: res.data.edges ?? [],
+            communities: res.data.communities ?? [],
+          })
+        })
+        .catch((err: Error) => {
+          setFullGraph(null)
+          setGraphLoadError(err.message || '加载完整图谱失败')
+        })
+        .finally(() => setGraphLoading(false))
       fetchKnowledgeWiki({ path: { repoId: currentRepoId }, query: { language: 'zh' } })
         .then(({ data }) => {
           setWiki(data)
@@ -555,12 +611,13 @@ export default function Knowledge() {
               <span className="gh-label">{effectiveGraphStatus?.status ?? '未就绪'}</span>
             </div>
             <div className="gh-box-body">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 12 }}>
                 {[
                   ['节点', effectiveGraphStatus?.nodeCount ?? 0],
                   ['边', effectiveGraphStatus?.edgeCount ?? 0],
                   ['社区', effectiveGraphStatus?.communityCount ?? 0],
                   ['片段', effectiveGraphStatus?.chunkCount ?? overview?.chunkCount ?? 0],
+                  ['代码行', overview?.lineCount ?? 0],
                 ].map(([label, value]) => (
                   <div key={label} style={{ padding: 12, border: '1px solid var(--border)', borderRadius: 6 }}>
                     <div className="gh-muted" style={{ fontSize: 12 }}>{label}</div>
@@ -570,6 +627,35 @@ export default function Knowledge() {
               </div>
               {effectiveGraphStatus?.message && (
                 <p className="gh-muted" style={{ margin: '12px 0 0' }}>{effectiveGraphStatus.message}</p>
+              )}
+              {effectiveGraphStatus?.inspectHint && (
+                <p className="gh-muted" style={{ margin: '8px 0 0', fontSize: 12 }}>
+                  {effectiveGraphStatus.inspectHint}
+                </p>
+              )}
+              {(effectiveGraphStatus?.nodesByType || effectiveGraphStatus?.edgesByType) && (
+                <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {effectiveGraphStatus.nodesByType && (
+                    <div>
+                      <div className="gh-muted" style={{ fontSize: 12, marginBottom: 6 }}>节点类型</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {Object.entries(effectiveGraphStatus.nodesByType).map(([k, v]) => (
+                          <span key={k} className="gh-label">{k}: {v}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {effectiveGraphStatus.edgesByType && (
+                    <div>
+                      <div className="gh-muted" style={{ fontSize: 12, marginBottom: 6 }}>边类型</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {Object.entries(effectiveGraphStatus.edgesByType).map(([k, v]) => (
+                          <span key={k} className="gh-label">{k}: {v}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
                 <span className="gh-label">状态 {overview?.status ?? '—'}</span>
@@ -582,6 +668,140 @@ export default function Knowledge() {
               </div>
             </div>
           </div>
+
+          {(fullGraph || graphLoading || graphLoadError) && (
+            <div className="gh-box" style={{ marginBottom: 16 }}>
+              <div className="gh-box-header">
+                完整知识图谱（CodeWiki 实时）
+                {fullGraph && (
+                  <span className="gh-label">
+                    {fullGraph.nodeCount} 节点 · {fullGraph.edgeCount} 边 · {fullGraph.communityCount} 社区
+                  </span>
+                )}
+              </div>
+              <div className="gh-box-body">
+                {graphLoading && <Spin />}
+                {graphLoadError && <Alert type="error" showIcon message={graphLoadError} />}
+                {fullGraph && !graphLoading && (
+                  <>
+                    <p style={{ marginTop: 0, fontSize: 13 }}>
+                      数据源：<code>{fullGraph.source}</code>
+                      {fullGraph.codeWikiRepoId && (
+                        <>
+                          {' '}
+                          · CodeWiki repo：<code>{fullGraph.codeWikiRepoId}</code>
+                        </>
+                      )}
+                    </p>
+                    {fullGraph.note && (
+                      <p className="gh-muted" style={{ marginTop: 0, fontSize: 12 }}>
+                        {fullGraph.note}
+                      </p>
+                    )}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="gh-btn"
+                        onClick={() => {
+                          const blob = new Blob([JSON.stringify(fullGraph, null, 2)], {
+                            type: 'application/json',
+                          })
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = `codewiki-graph-${fullGraph.codeWikiRepoId || 'repo'}.json`
+                          a.click()
+                          URL.revokeObjectURL(url)
+                        }}
+                      >
+                        下载完整 JSON（可核验）
+                      </button>
+                      <a
+                        className="gh-btn"
+                        href="http://127.0.0.1:8001"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        打开 CodeWiki UI
+                      </a>
+                    </div>
+                    <KnowledgeForceGraph nodes={fullGraph.nodes} edges={fullGraph.edges} height={560} />
+                    <details style={{ marginTop: 12 }}>
+                      <summary style={{ cursor: 'pointer' }}>抽样原始节点（前 5 条，来自同一响应）</summary>
+                      <pre
+                        style={{
+                          marginTop: 8,
+                          padding: 12,
+                          background: '#f6f8fa',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          overflow: 'auto',
+                          maxHeight: 240,
+                        }}
+                      >
+                        {JSON.stringify(fullGraph.nodes.slice(0, 5), null, 2)}
+                      </pre>
+                    </details>
+                    <details style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: 'pointer' }}>抽样原始边（前 5 条）</summary>
+                      <pre
+                        style={{
+                          marginTop: 8,
+                          padding: 12,
+                          background: '#f6f8fa',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          overflow: 'auto',
+                          maxHeight: 240,
+                        }}
+                      >
+                        {JSON.stringify(fullGraph.edges.slice(0, 5), null, 2)}
+                      </pre>
+                    </details>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {communities.length > 0 && (
+            <div className="gh-box" style={{ marginBottom: 16 }}>
+              <div className="gh-box-header">
+                GraphRAG 社区（可直接阅读）
+                <span className="gh-label">{communities.length}</span>
+              </div>
+              <div className="gh-box-body" style={{ maxHeight: 360, overflow: 'auto' }}>
+                {communities.slice(0, 12).map((c, idx) => (
+                  <div
+                    key={`${c.symbolName ?? 'c'}-${idx}`}
+                    style={{
+                      padding: '10px 0',
+                      borderBottom: idx === Math.min(communities.length, 12) - 1 ? 'none' : '1px solid var(--border)',
+                    }}
+                  >
+                    <strong style={{ display: 'block', marginBottom: 4 }}>
+                      {c.symbolName || `community-${idx + 1}`}
+                    </strong>
+                    <pre
+                      style={{
+                        margin: 0,
+                        whiteSpace: 'pre-wrap',
+                        fontFamily: 'inherit',
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        color: 'var(--fg-muted, #57606a)',
+                      }}
+                    >
+                      {(c.content || '').replace(/^community:\s*.+\n/, '')}
+                    </pre>
+                  </div>
+                ))}
+                <p className="gh-muted" style={{ margin: '12px 0 0', fontSize: 12 }}>
+                  另可打开 CodeWiki UI：http://127.0.0.1:8001 （仅本机）。问答已改为优先使用社区摘要 + 图探索 + /ask，而非原始 chunks。
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="gh-grid-2" style={{ marginBottom: 16 }}>
             <div className="gh-box">
@@ -1037,6 +1257,7 @@ export default function Knowledge() {
                 {overview && (
                   <span className="gh-muted" style={{ fontWeight: 400 }}>
                     {overview.fileCount} 文件 · {overview.chunkCount} 片段
+                    {typeof overview.lineCount === 'number' ? ` · ${overview.lineCount} 行` : ''}
                   </span>
                 )}
               </div>

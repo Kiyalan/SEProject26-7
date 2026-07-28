@@ -84,6 +84,10 @@ export default function ContextPanel() {
                 <span>{knowledge.fileCount}</span>
               </div>
               <div className="gh-data-row">
+                <span className="gh-muted">代码行数</span>
+                <span>{knowledge.lineCount ?? '—'}</span>
+              </div>
+              <div className="gh-data-row">
                 <span className="gh-muted">检索片段</span>
                 <span>{knowledge.chunkCount}</span>
               </div>

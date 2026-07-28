@@ -2,6 +2,10 @@
 
 RepoPilot：GitHub OAuth、知识库（CodeWiki AST + GraphRAG）、智能问答、Issue 分析与仓库操作。
 
+**新人本地部署**：请先阅读 [`LOCAL_SETUP.md`](LOCAL_SETUP.md)（环境安装 → 配置 `.env` → 一键启动）。
+
+知识库概览会显示本地估算的 **代码行数**（`lineCount`）。GitHub 原生不提供仓库总 LOC，仅有 Linguist 语言占比（按字节）；本系统在同步后的工作区统计源码行数（排除 `node_modules`/`target` 等）。
+
 ## Docker 是做什么的？
 
 Docker 只跑**服务端知识引擎**，不是给浏览器用户装的客户端：

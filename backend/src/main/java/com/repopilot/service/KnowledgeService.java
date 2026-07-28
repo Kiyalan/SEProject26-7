@@ -222,6 +222,16 @@ public class KnowledgeService {
         result.put("indexedAt", safe(index.getIndexedAt()));
         result.put("fileCount", value(index.getFileCount()));
         result.put("chunkCount", value(index.getChunkCount()));
+        Map<String, Object> lineStats = Map.of();
+        try {
+            lineStats = RepoLineCountService.count(git.hostPath(repoId, ownerLogin(repoId)));
+        } catch (Exception ignored) {
+            lineStats = Map.of("lineCount", 0, "sourceFileCount", 0, "lineCountByLanguage", Map.of());
+        }
+        result.put("lineCount", lineStats.getOrDefault("lineCount", 0));
+        result.put("sourceFileCount", lineStats.getOrDefault("sourceFileCount", 0));
+        result.put("lineCountByLanguage", lineStats.getOrDefault("lineCountByLanguage", Map.of()));
+        result.put("lineCountNote", lineStats.getOrDefault("lineCountNote", ""));
         result.put("summary", safe(index.getSummary()));
         result.put("moduleSummary", "");
         result.put("languages", JsonUtils.parseIntMap(index.getLanguages()));
@@ -317,7 +327,13 @@ public class KnowledgeService {
         if (!evidence.isEmpty()) return evidence.getFirst();
         Map<String, Object> overview = getOverview(repoId, ownerLogin, null);
         return evidence("knowledge/repository-overview", "repository_overview",
-                "仓库: " + overview.getOrDefault("fullName", "") + "\n摘要: " + overview.getOrDefault("summary", ""));
+                "仓库: " + overview.getOrDefault("fullName", "")
+                        + "\n摘要: " + overview.getOrDefault("summary", "")
+                        + "\nfileCount: " + overview.getOrDefault("fileCount", 0)
+                        + "\nchunkCount: " + overview.getOrDefault("chunkCount", 0)
+                        + "\nlineCount: " + overview.getOrDefault("lineCount", 0)
+                        + "\nsourceFileCount: " + overview.getOrDefault("sourceFileCount", 0)
+                        + "\nlineCountNote: " + overview.getOrDefault("lineCountNote", ""));
     }
 
     public Map<String, Object> compareCommits(String repoId, String baseSha, String headSha) {
@@ -340,9 +356,168 @@ public class KnowledgeService {
     }
 
     public List<Map<String, Object>> retrieveChunks(String repoId, String ownerLogin, String question, String ignoredCommitSha, int limit) {
+        // Legacy path kept for FAQ/Issue fallback. Prefer graphRagContexts for chat.
         RepoIndex index = requireReadyIndex(repoId);
         JsonNode response = codeWiki.retrieve(index.getCodeWikiRepoId(), question, 2);
         return evidenceRows(response, limit, "code");
+    }
+
+    /**
+     * Chat retrieval grounded in GraphRAG structure: graph explore text and community
+     * summaries. CodeWiki /ask is intentionally skipped here — it runs a second LLM and
+     * blocked the chat SSE for minutes with no UI feedback.
+     */
+    public List<Map<String, Object>> graphRagContexts(String repoId, String ownerLogin, String question, int limit) {
+        RepoIndex index = requireReadyIndex(repoId);
+        String codeWikiId = index.getCodeWikiRepoId();
+        List<Map<String, Object>> contexts = new ArrayList<>();
+        int bound = Math.min(Math.max(limit, 4), 24);
+
+        try {
+            JsonNode explore = codeWiki.explore(codeWikiId, mapper.valueToTree(Map.of(
+                    "query", question,
+                    "max_files", 12,
+                    "max_nodes", 120
+            )));
+            String exploreText = explore.path("text").asText("");
+            if (!exploreText.isBlank()) {
+                Map<String, Object> row = evidence("codewiki/graph-explore", "graph_explore",
+                        exploreText.length() > 12000 ? exploreText.substring(0, 12000) + "\n…(truncated)" : exploreText);
+                row.put("score", 98);
+                row.put("retrievalType", "graph");
+                contexts.add(row);
+            }
+            JsonNode relationships = explore.path("relationships");
+            if (relationships.isArray() && !relationships.isEmpty()) {
+                StringBuilder rel = new StringBuilder("Graph relationships:\n");
+                int n = 0;
+                for (JsonNode edge : relationships) {
+                    rel.append("- ").append(edge.toString()).append('\n');
+                    if (++n >= 40) break;
+                }
+                Map<String, Object> row = evidence("codewiki/graph-relationships", "graph_relationships", rel.toString());
+                row.put("score", 90);
+                row.put("retrievalType", "graph");
+                contexts.add(row);
+            }
+        } catch (Exception ex) {
+            Map<String, Object> notice = evidence("codewiki/graph-explore", "system",
+                    "图探索暂不可用: " + rootMessage(ex));
+            notice.put("score", 10);
+            contexts.add(notice);
+        }
+
+        try {
+            // Prefer communities + explore. Skip CodeWiki /ask by default: it runs a second LLM
+            // and often blocks the chat UI for minutes before the first SSE event.
+            contexts.addAll(communityContexts(codeWikiId, question, 8));
+        } catch (Exception ignored) {
+            // optional
+        }
+
+        if (contexts.isEmpty()) {
+            throw new IllegalStateException("GraphRAG 检索未返回可用图上下文，请确认知识库已构建且 CodeWiki 健康");
+        }
+        return contexts.size() > bound ? contexts.subList(0, bound) : contexts;
+    }
+
+    public List<Map<String, Object>> listCommunities(String repoId, String ownerLogin) {
+        requireReadyIndex(repoId);
+        return communityContexts(codeWikiId(repoId), "", 40);
+    }
+
+    /**
+     * Proxy the live CodeWiki graph (nodes/edges/communities). Not synthesized locally.
+     */
+    public Map<String, Object> fullGraph(String repoId, String ownerLogin) {
+        requireReadyIndex(repoId);
+        JsonNode graph = codeWiki.fullGraph(codeWikiId(repoId));
+        List<Map<String, Object>> nodes = new ArrayList<>();
+        List<Map<String, Object>> edges = new ArrayList<>();
+        List<Map<String, Object>> communities = new ArrayList<>();
+        if (graph.path("nodes").isArray()) {
+            for (JsonNode node : graph.path("nodes")) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", node.path("id").asText());
+                row.put("type", node.path("type").asText(""));
+                row.put("name", node.path("name").asText(""));
+                row.put("filePath", node.path("file_path").asText(""));
+                row.put("startLine", node.path("start_line").isNull() ? null : node.path("start_line").asInt());
+                row.put("endLine", node.path("end_line").isNull() ? null : node.path("end_line").asInt());
+                row.put("language", node.path("language").asText(""));
+                row.put("symbolId", node.path("symbol_id").asText(""));
+                row.put("confidence", node.path("confidence").asDouble(1.0));
+                nodes.add(row);
+            }
+        }
+        if (graph.path("edges").isArray()) {
+            for (JsonNode edge : graph.path("edges")) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", edge.path("id").asText());
+                row.put("source", edge.path("source").asText());
+                row.put("target", edge.path("target").asText());
+                row.put("type", edge.path("type").asText(""));
+                row.put("confidence", edge.path("confidence").asDouble(1.0));
+                row.put("reason", edge.path("reason").asText(""));
+                edges.add(row);
+            }
+        }
+        if (graph.path("communities").isArray()) {
+            for (JsonNode community : graph.path("communities")) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", community.path("id").asText());
+                row.put("name", community.path("name").asText(""));
+                row.put("level", community.path("level").asInt(0));
+                row.put("summary", community.path("summary").asText(""));
+                row.put("rank", community.path("rank").asInt(0));
+                communities.add(row);
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("source", "codewiki");
+        result.put("codeWikiRepoId", codeWikiId(repoId));
+        result.put("repoId", repoId);
+        result.put("nodeCount", nodes.size());
+        result.put("edgeCount", edges.size());
+        result.put("communityCount", communities.size());
+        result.put("nodes", nodes);
+        result.put("edges", edges);
+        result.put("communities", communities);
+        result.put("note", "数据直接来自 CodeWiki GET /api/repos/{id}/graph，非本地编造");
+        return result;
+    }
+
+    private List<Map<String, Object>> communityContexts(String codeWikiId, String question, int limit) {
+        JsonNode rows = codeWiki.communities(codeWikiId);
+        if (rows == null) return List.of();
+        JsonNode list = rows.isArray() ? rows : rows.path("items");
+        if (!list.isArray()) list = rows.path("communities");
+        if (!list.isArray()) return List.of();
+        String lower = question == null ? "" : question.toLowerCase();
+        List<Map<String, Object>> scored = new ArrayList<>();
+        for (JsonNode community : list) {
+            String name = firstText(community, "name", "title", "id");
+            String summary = firstText(community, "summary", "description", "content");
+            if (name.isBlank() && summary.isBlank()) continue;
+            String blob = (name + "\n" + summary).toLowerCase();
+            int score = lower.isBlank() ? 50 : 20;
+            if (!lower.isBlank()) {
+                for (String token : lower.split("[\\s\\p{Punct}]+")) {
+                    if (token.length() >= 3 && blob.contains(token)) score += 8;
+                }
+            }
+            Map<String, Object> row = evidence("codewiki/community/" + name, "community",
+                    "community: " + name + "\n" + summary);
+            row.put("score", score);
+            row.put("retrievalType", "community");
+            row.put("symbolName", name);
+            row.put("symbolKind", "community");
+            scored.add(row);
+        }
+        scored.sort((a, b) -> Integer.compare(
+                ((Number) b.getOrDefault("score", 0)).intValue(),
+                ((Number) a.getOrDefault("score", 0)).intValue()));
+        return scored.size() > limit ? scored.subList(0, limit) : scored;
     }
 
     public List<Map<String, Object>> retrieveChunksByPathHints(
@@ -373,7 +548,40 @@ public class KnowledgeService {
 
     public Map<String, Object> graphStatus(String repoId) {
         return store.findIndex(repoId)
-                .map(this::graphStatusView)
+                .map(index -> {
+                    Map<String, Object> view = new LinkedHashMap<>(graphStatusView(index));
+                    try {
+                        JsonNode live = codeWiki.graphStatus(codeWikiId(repoId));
+                        view.put("nodeCount", firstInt(live, "node_count", "nodes"));
+                        view.put("edgeCount", firstInt(live, "edge_count", "edges"));
+                        view.put("chunkCount", firstInt(live, "chunk_count", "chunks"));
+                        view.put("fileCount", firstInt(live, "file_count", "files"));
+                        if (live.path("nodes_by_type").isObject()) {
+                            view.put("nodesByType", jsonValue(live.path("nodes_by_type")));
+                        }
+                        if (live.path("edges_by_type").isObject()) {
+                            view.put("edgesByType", jsonValue(live.path("edges_by_type")));
+                        }
+                        try {
+                            JsonNode communities = codeWiki.communities(codeWikiId(repoId));
+                            JsonNode list = communities != null && communities.isArray()
+                                    ? communities
+                                    : (communities == null ? null : communities.path("items"));
+                            if (list != null && list.isArray()) {
+                                view.put("communityCount", list.size());
+                            }
+                        } catch (Exception ignoredCommunities) {
+                            // keep cached communityCount
+                        }
+                        view.put("inspectHint",
+                                "可在本机打开 http://127.0.0.1:8001 查看 CodeWiki；"
+                                        + "或调用 GET /api/repos/{repoId}/knowledge/communities 阅读社区摘要。");
+                        view.put("status", firstInt(live, "node_count", "nodes") > 0 ? "ready" : view.get("status"));
+                    } catch (Exception ignored) {
+                        // Keep H2 cached counts when CodeWiki is down.
+                    }
+                    return view;
+                })
                 .orElse(Map.of("status", "not_indexed", "provider", "codewiki",
                         "nodeCount", 0, "edgeCount", 0, "communityCount", 0, "chunkCount", 0));
     }
@@ -1024,7 +1232,9 @@ public class KnowledgeService {
         result.put("repoId", repoId); result.put("status", "not_indexed");
         result.put("tree", List.of()); result.put("modules", List.of());
         result.put("dependencies", List.of()); result.put("fileCount", 0);
-        result.put("chunkCount", 0); result.put("summary", "");
+        result.put("chunkCount", 0); result.put("lineCount", 0);
+        result.put("sourceFileCount", 0); result.put("lineCountByLanguage", Map.of());
+        result.put("lineCountNote", ""); result.put("summary", "");
         result.put("languages", Map.of()); result.put("indexedFiles", List.of());
         result.put("commits", List.of()); result.put("settings", getSettings(repoId));
         result.put("deduplication", storageStats(repoId));
@@ -1042,9 +1252,17 @@ public class KnowledgeService {
     }
 
     private static Map<String, Object> evidence(String file, String type, String content) {
-        return Map.of("file", file, "line", 1, "endLine", 1, "symbolName", file,
-                "symbolKind", "repository", "score", 1, "retrievalType", "structured",
-                "sourceType", type, "content", content);
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("file", file);
+        row.put("line", 1);
+        row.put("endLine", 1);
+        row.put("symbolName", file);
+        row.put("symbolKind", "repository");
+        row.put("score", 1);
+        row.put("retrievalType", "structured");
+        row.put("sourceType", type);
+        row.put("content", content);
+        return row;
     }
 
     private static String required(JsonNode node, String field) {

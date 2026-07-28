@@ -6,6 +6,7 @@ import com.repopilot.service.RepoAuthorizationService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/repos/{repoId}/faq")
@@ -50,6 +51,20 @@ public class FaqController {
         String ownerLogin = AuthSupport.requireUsername(authorization);
         authorize(repoId, authorization);
         return faqService.export(repoId, format);
+    }
+
+    @PostMapping("/items")
+    Map<String, Object> addItem(
+            @PathVariable String repoId,
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "Authorization", required = false) String authorization
+    ) {
+        AuthSupport.requireUsername(authorization);
+        authorize(repoId, authorization);
+        String question = Objects.toString(body.get("question"), "");
+        String answer = Objects.toString(body.get("answer"), "");
+        String category = Objects.toString(body.get("category"), "chat");
+        return faqService.addFromChat(repoId, question, answer, category);
     }
 
     private void authorize(String repoId, String authorization) {
