@@ -10,4 +10,8 @@ export interface ChatMessage {
   content: string
   citations?: { file: string; line?: number }[]
   questionType?: 'what' | 'where' | 'how'
+  intent?: string
+  emptyEvidence?: boolean
+  error?: boolean
+  streaming?: boolean
 }

@@ -1,5 +1,5 @@
-import { ShieldLockIcon } from '@primer/octicons-react'
 import { Alert, Form, Input } from 'antd'
+import { ShieldLockIcon } from '@primer/octicons-react'
 import { useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import {
@@ -7,7 +7,7 @@ import {
   adminLogin,
   getAdminLockState,
   isAdminAuthenticated,
-} from '../../../../frontend/src/lib/adminAuth'
+} from '../../lib/adminAuth'
 
 export default function AdminLogin() {
   const [error, setError] = useState<string | null>(null)
@@ -18,23 +18,21 @@ export default function AdminLogin() {
     return <Navigate to="/admin" replace />
   }
 
-  const onFinish = (values: { username: string; password: string }) => {
+  const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true)
     setError(null)
-    const result = adminLogin(values.username, values.password)
-    setLoading(false)
-
-    if (result.ok) {
-      window.location.href = '/admin'
-      return
-    }
-
-    if (result.reason === 'empty_fields') {
-      setError('请输入账号与密码')
-    } else if (result.reason === 'locked') {
-      setError(`账号已临时锁定，请 ${result.minutesLeft} 分钟后再试`)
-    } else if (result.reason === 'invalid_credentials') {
-      setError(`密码错误，剩余 ${result.remaining} 次尝试机会`)
+    try {
+      const result = await adminLogin(values.username, values.password)
+      if (result.ok) {
+        window.location.href = '/admin'
+        return
+      }
+      if (result.reason === 'empty_fields') setError('请输入账号与密码')
+      else if (result.reason === 'locked') setError(`账号已临时锁定，请 ${result.minutesLeft} 分钟后再试`)
+      else if (result.reason === 'invalid_credentials') setError(`密码错误，剩余 ${result.remaining} 次尝试机会`)
+      else if (result.reason === 'network') setError(result.message)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -60,23 +58,13 @@ export default function AdminLogin() {
             />
           )}
 
-          {error && (
-            <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
-          )}
+          {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}
 
           <Form layout="vertical" onFinish={onFinish} disabled={lock.locked}>
-            <Form.Item
-              label="管理员账号"
-              name="username"
-              rules={[{ required: true, message: '请输入账号' }]}
-            >
+            <Form.Item label="管理员账号" name="username" rules={[{ required: true, message: '请输入账号' }]}>
               <Input placeholder="admin" autoComplete="username" />
             </Form.Item>
-            <Form.Item
-              label="密码"
-              name="password"
-              rules={[{ required: true, message: '请输入密码' }]}
-            >
+            <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }]}>
               <Input.Password placeholder="请输入密码" autoComplete="current-password" />
             </Form.Item>
             <button

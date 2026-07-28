@@ -3,7 +3,6 @@ import { Alert, Modal, Input, message } from 'antd'
 import { useState } from 'react'
 import { useRepoContext } from '../context/RepoContext'
 import {
-  buildKnowledge,
   executeGitAction,
   executeNlCommand,
 } from '../api/generated'
@@ -30,7 +29,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
     prBody: '',
   })
 
-  const run = async (key: string, fn: () => Promise<unknown>) => {
+  const run = async (key: string, fn: () => Promise<unknown>, successText = '操作成功') => {
     if (!currentRepoId) {
       message.warning('请先选择仓库')
       return
@@ -38,7 +37,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
     setLoading(key)
     try {
       const result = await fn()
-      message.success('操作成功')
+      message.success(successText)
       return result
     } catch (err) {
       message.error(err instanceof Error ? err.message : '操作失败')
@@ -48,10 +47,21 @@ export default function QuickActions({ compact }: QuickActionsProps) {
   }
 
   const handleSync = () =>
-    run('sync', async () => {
-      await buildKnowledge({ path: { repoId: currentRepoId } })
-      await syncRepoList()
-    })
+    run(
+      'sync',
+      async () => {
+        const { data } = await executeGitAction({
+          path: { repoId: currentRepoId! },
+          body: { action: 'sync_knowledge', params: {} },
+        })
+        const taskId = typeof data?.taskId === 'string' ? data.taskId : ''
+        await syncRepoList()
+        if (taskId) {
+          message.info(`任务 ${taskId.slice(0, 8)}… 已排队，可在知识库页查看日志`)
+        }
+      },
+      '已通过 sync_knowledge 提交知识库同步',
+    )
 
   const handleNl = async () => {
     if (!nlCommand.trim() || !currentRepoId) return
@@ -76,13 +86,15 @@ export default function QuickActions({ compact }: QuickActionsProps) {
     if (!currentRepoId) return
     setLoading(modal.type)
     try {
+      let detail = '操作成功'
       if (modal.type === 'branch') {
-        await executeGitAction({
+        const { data } = await executeGitAction({
           path: { repoId: currentRepoId },
           body: { action: 'create_branch', params: { branch: form.branch } },
         })
+        detail = typeof data?.message === 'string' ? data.message : `分支 ${form.branch} 已创建`
       } else if (modal.type === 'commit') {
-        await executeGitAction({
+        const { data } = await executeGitAction({
           path: { repoId: currentRepoId },
           body: {
             action: 'commit_file',
@@ -93,8 +105,9 @@ export default function QuickActions({ compact }: QuickActionsProps) {
             },
           },
         })
+        detail = typeof data?.message === 'string' ? data.message : `已提交 ${form.path}`
       } else {
-        await executeGitAction({
+        const { data } = await executeGitAction({
           path: { repoId: currentRepoId },
           body: {
             action: 'create_pr',
@@ -105,8 +118,10 @@ export default function QuickActions({ compact }: QuickActionsProps) {
             },
           },
         })
+        const url = typeof data?.htmlUrl === 'string' ? data.htmlUrl : typeof data?.url === 'string' ? data.url : ''
+        detail = url ? `PR 已创建：${url}` : typeof data?.message === 'string' ? data.message : 'Pull Request 已创建'
       }
-      message.success('操作成功')
+      message.success(detail)
       setModal((m) => ({ ...m, open: false }))
     } catch (err) {
       message.error(err instanceof Error ? err.message : '操作失败')

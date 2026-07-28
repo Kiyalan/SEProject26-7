@@ -70,6 +70,10 @@ export type IssueListResponse = {
 export type IssueAnalyzeRequest = {
     repoId: string;
     issue: GithubIssue;
+    /**
+     * When true, ignore cached analysis and re-run classification + GraphRAG retrieval
+     */
+    force?: boolean;
 };
 
 export type FileCitation = {
@@ -118,7 +122,17 @@ export type KnowledgePolicy = {
 };
 
 export type KnowledgeBuildRequest = {
+    /**
+     * Deprecated compatibility option. New builds index the current repository state.
+     *
+     * @deprecated
+     */
     indexEachCommit?: boolean;
+    /**
+     * Deprecated compatibility limit for per-commit indexing.
+     *
+     * @deprecated
+     */
     maxCommits?: number;
     commitShas?: Array<string> | null;
 };
@@ -132,17 +146,108 @@ export type DeduplicationStats = {
 };
 
 export type KnowledgeBuildResult = {
+    taskId: string;
     repoId: string;
-    fullName?: string;
-    indexedCommits: number;
-    commits: Array<{
-        commitSha: string;
-        shortSha: string;
-        message: string;
-    }>;
-    activeCommitSha: string;
-    deduplication?: DeduplicationStats;
-    status: string;
+    status: 'queued' | 'indexing';
+    message: string;
+    async: true;
+};
+
+export type KnowledgeQuality = {
+    status: 'unknown' | 'excellent' | 'good' | 'degraded' | 'poor' | 'failed';
+    score: number;
+    report: {
+        [key: string]: unknown;
+    };
+    lastTaskId: string;
+};
+
+export type KnowledgeBuildTask = {
+    taskId: string;
+    repoId: string;
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+    mode: 'incremental' | 'full';
+    requestedAt: string;
+    startedAt?: string;
+    finishedAt?: string;
+    baseCommitSha?: string;
+    targetCommitSha?: string;
+    totalSteps?: number;
+    completedSteps?: number;
+    progress: number;
+    message: string;
+    filesTotal: number;
+    filesIndexed: number;
+    filesReused: number;
+    filesFailed: number;
+    chunksTotal: number;
+    embeddingsTotal?: number;
+    embeddingsCompleted?: number;
+    astFiles?: number;
+    astSymbols?: number;
+    qualityStatus: string;
+    qualityScore: number;
+    qualityReport: {
+        [key: string]: unknown;
+    };
+};
+
+export type KnowledgeBuildError = {
+    id: number;
+    stage: string;
+    filePath: string;
+    errorCode: string;
+    message: string;
+    occurredAt: string;
+    retryable: boolean;
+};
+
+export type ProgressSnapshot = {
+    status: 'idle' | 'running' | 'done' | 'error';
+    progress: number;
+    message: string;
+    stage: string;
+    total: number;
+    done: number;
+};
+
+export type RepoProgressResponse = {
+    knowledge: ProgressSnapshot;
+    issues: ProgressSnapshot;
+    latestKnowledgeTask?: KnowledgeBuildTask | null;
+};
+
+export type AstSymbol = {
+    name: string;
+    kind: string;
+    signature: string;
+    startLine: number;
+    endLine: number;
+    parent: string;
+    parser: string;
+};
+
+export type KnowledgeSearchRequest = {
+    query: string;
+    commitSha?: string;
+    limit?: number;
+};
+
+export type KnowledgeSearchItem = {
+    file: string;
+    line: number;
+    endLine: number;
+    symbolName?: string;
+    symbolKind?: string;
+    content: string;
+    score: number;
+    retrievalType: 'graph' | 'fts' | 'vector' | 'community' | 'keyword';
+};
+
+export type KnowledgeSearchResponse = {
+    repoId: string;
+    commitSha: string;
+    items: Array<KnowledgeSearchItem>;
 };
 
 export type KnowledgeNode = {
@@ -170,14 +275,32 @@ export type IndexedCommitListResponse = {
 };
 
 export type KnowledgeSettings = {
+    /**
+     * @deprecated
+     */
     indexEachCommit: boolean;
+    /**
+     * @deprecated
+     */
     maxCommits: number;
+    /**
+     * @deprecated
+     */
     activeCommitSha: string;
 };
 
 export type KnowledgeSettingsRequest = {
+    /**
+     * @deprecated
+     */
     indexEachCommit?: boolean | null;
+    /**
+     * @deprecated
+     */
     maxCommits?: number | null;
+    /**
+     * @deprecated
+     */
     activeCommitSha?: string | null;
 };
 
@@ -197,6 +320,7 @@ export type KnowledgeOverview = {
     }>;
     dependencies: Array<string>;
     summary?: string;
+    moduleSummary?: string;
     languages?: {
         [key: string]: number;
     };
@@ -210,15 +334,131 @@ export type KnowledgeOverview = {
         path: string;
         size: number;
         language: string;
+        summary?: string;
+        astSymbols?: Array<AstSymbol>;
     }>;
     commits?: Array<IndexedCommit>;
     settings?: KnowledgeSettings;
     deduplication?: DeduplicationStats;
+    quality?: KnowledgeQuality;
+    graphStatus?: KnowledgeGraphStatus;
+    wikiStatus?: 'not_generated' | 'queued' | 'generating' | 'ready' | 'failed';
+    provider?: 'codewiki';
     storageModel?: {
         displayed?: Array<string>;
         databaseOnly?: Array<string>;
         dedupStrategy?: string;
     };
+};
+
+export type KnowledgeGraphStatus = {
+    status: 'not_indexed' | 'queued' | 'building' | 'ready' | 'failed';
+    provider: 'codewiki';
+    nodeCount: number;
+    edgeCount: number;
+    communityCount: number;
+    chunkCount: number;
+    indexedAt?: string;
+    message?: string;
+};
+
+export type KnowledgeGraphNode = {
+    id: string;
+    name: string;
+    type: 'repository' | 'module' | 'file' | 'class' | 'interface' | 'function' | 'method' | 'variable' | 'community' | 'chunk';
+    qualifiedName?: string;
+    path?: string;
+    language?: string;
+    line?: number;
+    endLine?: number;
+    summary?: string;
+    communityId?: string;
+    score?: number;
+};
+
+export type KnowledgeGraphEdge = {
+    source: string;
+    target: string;
+    type: 'contains' | 'imports' | 'calls' | 'inherits' | 'implements' | 'references' | 'depends_on' | 'member_of' | 'related_to';
+    weight?: number;
+};
+
+export type KnowledgeGraphSearchResponse = {
+    query: string;
+    items: Array<KnowledgeGraphNode>;
+    total: number;
+};
+
+export type KnowledgeGraphTraversalResponse = {
+    nodes: Array<KnowledgeGraphNode>;
+    edges: Array<KnowledgeGraphEdge>;
+    truncated: boolean;
+};
+
+export type KnowledgeGraphExploreRequest = {
+    query: string;
+    maxFiles?: number;
+    maxNodes?: number;
+};
+
+export type KnowledgeGraphExploreResponse = {
+    repoId: string;
+    query: string;
+    entryPoints: Array<{
+        [key: string]: unknown;
+    }>;
+    relationships: Array<{
+        [key: string]: unknown;
+    }>;
+    sourceSections: Array<{
+        [key: string]: unknown;
+    }>;
+    additionalFiles: Array<{
+        [key: string]: unknown;
+    }>;
+    text: string;
+    stats: {
+        [key: string]: number;
+    };
+};
+
+export type KnowledgeGraphAffectedRequest = {
+    filePaths: Array<string>;
+    depth?: number;
+    testGlob?: string;
+};
+
+export type KnowledgeGraphAffectedResponse = {
+    repoId: string;
+    changedFiles: Array<string>;
+    affectedFiles: Array<string>;
+    affectedTests: Array<string>;
+    affectedWikiPages: Array<string>;
+    affectedNodeIds: Array<string>;
+    traversedFileCount: number;
+};
+
+export type KnowledgeWikiGeneration = {
+    status: 'queued' | 'generating' | 'ready';
+    language: string;
+    taskId?: string;
+    message?: string;
+};
+
+export type KnowledgeWikiPage = {
+    id: string;
+    title: string;
+    path?: string;
+    content: string;
+    order: number;
+};
+
+export type KnowledgeWiki = {
+    status: 'not_generated' | 'queued' | 'generating' | 'ready' | 'failed';
+    provider: 'codewiki';
+    language: string;
+    generatedAt?: string;
+    pages: Array<KnowledgeWikiPage>;
 };
 
 export type CommitCompareResult = {
@@ -247,6 +487,10 @@ export type ChatResponse = {
     questionType: 'what' | 'where' | 'how';
     citations: Array<FileCitation>;
     llmEnabled: boolean;
+    /**
+     * Detected knowledge sources, e.g. history+api+deployment
+     */
+    intent: string;
 };
 
 export type PortfolioOverview = {
@@ -313,10 +557,259 @@ export type NlCommandResult = {
     action?: string;
 };
 
+export type FaqItem = {
+    id: string;
+    category: 'overview' | 'getting_started' | 'api' | 'deployment' | 'architecture' | 'troubleshooting';
+    question: string;
+    answer: string;
+    relatedFiles: Array<FileCitation>;
+    confidence: number;
+    updatedAt: string;
+};
+
+export type FaqListResponse = {
+    repoId: string;
+    status: 'empty' | 'ready' | 'stale';
+    generatedAt: string;
+    itemCount: number;
+    items: Array<FaqItem>;
+    message?: string;
+};
+
+export type FaqGenerateRequest = {
+    maxItems?: number;
+};
+
+export type FaqExportResponse = {
+    repoId: string;
+    format: 'markdown' | 'json';
+    content: string;
+    itemCount: number;
+    exportedAt: string;
+};
+
+export type NotificationSettings = {
+    email: string;
+    enabled: boolean;
+    notifyOnKnowledgeBuild: boolean;
+    notifyOnIssueAnalysis: boolean;
+    notifyOnWikiReady: boolean;
+    /**
+     * Only stub delivery is implemented; no real SMTP send
+     */
+    deliveryMode: 'stub';
+    updatedAt: string;
+    lastTestAt?: string;
+    lastTestMessage?: string;
+};
+
+export type NotificationSettingsUpdate = {
+    email?: string;
+    enabled?: boolean;
+    notifyOnKnowledgeBuild?: boolean;
+    notifyOnIssueAnalysis?: boolean;
+    notifyOnWikiReady?: boolean;
+};
+
+export type NotificationTestResult = {
+    success: boolean;
+    deliveryMode: 'stub';
+    message: string;
+    sentAt: string;
+    email?: string;
+};
+
+export type AdminLoginRequest = {
+    username: string;
+    password: string;
+};
+
+export type AdminLoginResponse = {
+    token: string;
+    username: string;
+    role: string;
+};
+
+export type AdminPlatformStats = {
+    totalRepos: number;
+    syncedRepos: number;
+    failedRepos: number;
+    knowledgeChunks: number;
+    memoryEntries: number;
+    faqEntries: number;
+    activeUsers: number;
+    openIssues: number;
+    syncSuccessRate: number;
+    lastFullCheck: string;
+};
+
+export type AdminHealthTrendPoint = {
+    date: string;
+    success: number;
+    failed: number;
+};
+
+export type AdminSyncTask = {
+    id: string;
+    repoId?: string;
+    repoFullName: string;
+    owner?: string;
+    status: 'success' | 'running' | 'failed' | 'paused';
+    startedAt: string;
+    endedAt?: string | null;
+    filesSynced: number;
+    errorMessage?: string | null;
+    trigger: 'manual' | 'webhook' | 'scheduled';
+};
+
+export type AdminOverview = {
+    stats: AdminPlatformStats;
+    healthTrend: Array<AdminHealthTrendPoint>;
+    recentSyncTasks: Array<AdminSyncTask>;
+};
+
+export type AdminSyncTaskList = {
+    items: Array<AdminSyncTask>;
+    total: number;
+};
+
+export type AdminSyncFailure = {
+    id: string;
+    repoFullName: string;
+    failedAt: string;
+    errorType: 'network' | 'auth' | 'rate_limit' | 'webhook' | 'parse';
+    errorMessage: string;
+    retryCount: number;
+    status: 'pending' | 'retrying' | 'ignored';
+};
+
+export type AdminSyncFailureList = {
+    items: Array<AdminSyncFailure>;
+    total: number;
+};
+
+export type AdminIntegrityCheck = {
+    repoId?: string;
+    repoFullName: string;
+    knowledgeOk: boolean;
+    memoryOk: boolean;
+    faqOk: boolean;
+    chunkCount: number;
+    memoryCount: number;
+    lastChecked: string;
+    issues: Array<string>;
+};
+
+export type AdminIntegrityList = {
+    items: Array<AdminIntegrityCheck>;
+    total: number;
+};
+
+export type AdminFaqRepoOption = {
+    repoId: string;
+    repoFullName: string;
+    faqCount: number;
+    memoryCount: number;
+    lastUpdated: string;
+};
+
+export type AdminFaqRepoList = {
+    items: Array<AdminFaqRepoOption>;
+    total: number;
+};
+
+export type AdminFaqExportRequest = {
+    repoIds: Array<string>;
+    format?: 'markdown' | 'json';
+};
+
+export type AdminFaqExportResponse = {
+    format: 'markdown' | 'json';
+    content: string;
+    itemCount: number;
+    repoCount: number;
+    exportedAt: string;
+};
+
+export type AdminAuditLog = {
+    id: string;
+    admin: string;
+    action: string;
+    target: string;
+    result: 'success' | 'failed';
+    createdAt: string;
+};
+
+export type AdminAuditLogList = {
+    items: Array<AdminAuditLog>;
+    total: number;
+};
+
+export type AdminCommunityUser = {
+    id: string;
+    login: string;
+    email: string;
+    boundRepos: number;
+    status: 'active' | 'suspended';
+    lastLogin: string;
+    createdAt: string;
+};
+
+export type AdminUserList = {
+    items: Array<AdminCommunityUser>;
+    total: number;
+    message?: string;
+};
+
 /**
  * GitHub repository numeric id (string in frontend paths)
  */
 export type RepoId = string;
+
+/**
+ * Persisted knowledge build task id
+ */
+export type TaskId = string;
+
+/**
+ * Text, qualified symbol name, or code fragment to search
+ */
+export type GraphQuery = string;
+
+/**
+ * Restrict results to one graph entity type
+ */
+export type GraphNodeType = 'repository' | 'module' | 'file' | 'class' | 'interface' | 'function' | 'method' | 'variable' | 'community' | 'chunk';
+
+/**
+ * Case-insensitive programming-language filter
+ */
+export type GraphLanguage = string;
+
+/**
+ * Repository-relative path prefix
+ */
+export type GraphPath = string;
+
+/**
+ * Stable graph node id or qualified symbol name
+ */
+export type GraphSymbol = string;
+
+/**
+ * Maximum traversal depth
+ */
+export type GraphDepth = number;
+
+/**
+ * Maximum number of returned nodes
+ */
+export type GraphLimit = number;
+
+/**
+ * BCP 47 language tag; defaults to repository or server preference
+ */
+export type WikiLanguage = string;
 
 export type StartGithubLoginData = {
     body?: never;
@@ -333,6 +826,26 @@ export type StartGithubLoginErrors = {
 };
 
 export type StartGithubLoginError = StartGithubLoginErrors[keyof StartGithubLoginErrors];
+
+export type CompleteGithubLoginData = {
+    body?: never;
+    path?: never;
+    query?: {
+        code?: string;
+        state?: string;
+        error?: string;
+    };
+    url: '/auth/callback';
+};
+
+export type CompleteGithubLoginErrors = {
+    /**
+     * Internal server error
+     */
+    500: ErrorDetail;
+};
+
+export type CompleteGithubLoginError = CompleteGithubLoginErrors[keyof CompleteGithubLoginErrors];
 
 export type FetchUserProfileData = {
     body?: never;
@@ -633,9 +1146,9 @@ export type BuildKnowledgeError = BuildKnowledgeErrors[keyof BuildKnowledgeError
 
 export type BuildKnowledgeResponses = {
     /**
-     * Build result
+     * Build task accepted
      */
-    200: KnowledgeBuildResult;
+    202: KnowledgeBuildResult;
 };
 
 export type BuildKnowledgeResponse = BuildKnowledgeResponses[keyof BuildKnowledgeResponses];
@@ -650,7 +1163,9 @@ export type FetchKnowledgeData = {
     };
     query?: {
         /**
-         * Optional commit SHA to view a specific indexed snapshot
+         * Deprecated compatibility parameter. CodeWiki GraphRAG represents current HEAD; historical commits remain available through JGit history and compare APIs.
+         *
+         * @deprecated
          */
         commit?: string;
     };
@@ -678,6 +1193,44 @@ export type FetchKnowledgeResponses = {
 };
 
 export type FetchKnowledgeResponse = FetchKnowledgeResponses[keyof FetchKnowledgeResponses];
+
+export type ResetKnowledgeData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/knowledge';
+};
+
+export type ResetKnowledgeErrors = {
+    /**
+     * Missing or invalid Bearer token
+     */
+    401: ErrorDetail;
+    /**
+     * Internal server error
+     */
+    500: ErrorDetail;
+};
+
+export type ResetKnowledgeError = ResetKnowledgeErrors[keyof ResetKnowledgeErrors];
+
+export type ResetKnowledgeResponses = {
+    /**
+     * Knowledge base reset successfully
+     */
+    200: {
+        repoId: string;
+        status: string;
+        message: string;
+    };
+};
+
+export type ResetKnowledgeResponse = ResetKnowledgeResponses[keyof ResetKnowledgeResponses];
 
 export type FetchKnowledgeCommitsData = {
     body?: never;
@@ -777,6 +1330,600 @@ export type UpdateKnowledgeSettingsResponses = {
 };
 
 export type UpdateKnowledgeSettingsResponse = UpdateKnowledgeSettingsResponses[keyof UpdateKnowledgeSettingsResponses];
+
+export type FetchRepoProgressData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/progress';
+};
+
+export type FetchRepoProgressErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchRepoProgressError = FetchRepoProgressErrors[keyof FetchRepoProgressErrors];
+
+export type FetchRepoProgressResponses = {
+    /**
+     * Current progress snapshots
+     */
+    200: RepoProgressResponse;
+};
+
+export type FetchRepoProgressResponse = FetchRepoProgressResponses[keyof FetchRepoProgressResponses];
+
+export type FetchKnowledgeBuildTasksData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: {
+        limit?: number;
+    };
+    url: '/api/repos/{repoId}/knowledge/tasks';
+};
+
+export type FetchKnowledgeBuildTasksErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchKnowledgeBuildTasksError = FetchKnowledgeBuildTasksErrors[keyof FetchKnowledgeBuildTasksErrors];
+
+export type FetchKnowledgeBuildTasksResponses = {
+    /**
+     * Build task history
+     */
+    200: {
+        items: Array<KnowledgeBuildTask>;
+    };
+};
+
+export type FetchKnowledgeBuildTasksResponse = FetchKnowledgeBuildTasksResponses[keyof FetchKnowledgeBuildTasksResponses];
+
+export type FetchKnowledgeBuildTaskData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+        /**
+         * Persisted knowledge build task id
+         */
+        taskId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/knowledge/tasks/{taskId}';
+};
+
+export type FetchKnowledgeBuildTaskErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+    /**
+     * Resource not found
+     */
+    404: ErrorDetail;
+};
+
+export type FetchKnowledgeBuildTaskError = FetchKnowledgeBuildTaskErrors[keyof FetchKnowledgeBuildTaskErrors];
+
+export type FetchKnowledgeBuildTaskResponses = {
+    /**
+     * Build task
+     */
+    200: KnowledgeBuildTask;
+};
+
+export type FetchKnowledgeBuildTaskResponse = FetchKnowledgeBuildTaskResponses[keyof FetchKnowledgeBuildTaskResponses];
+
+export type FetchKnowledgeBuildErrorsData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+        /**
+         * Persisted knowledge build task id
+         */
+        taskId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/knowledge/tasks/{taskId}/errors';
+};
+
+export type FetchKnowledgeBuildErrorsErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+    /**
+     * Resource not found
+     */
+    404: ErrorDetail;
+};
+
+export type FetchKnowledgeBuildErrorsError = FetchKnowledgeBuildErrorsErrors[keyof FetchKnowledgeBuildErrorsErrors];
+
+export type FetchKnowledgeBuildErrorsResponses = {
+    /**
+     * Build errors
+     */
+    200: {
+        items: Array<KnowledgeBuildError>;
+    };
+};
+
+export type FetchKnowledgeBuildErrorsResponse = FetchKnowledgeBuildErrorsResponses[keyof FetchKnowledgeBuildErrorsResponses];
+
+export type FetchKnowledgeQualityData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/knowledge/quality';
+};
+
+export type FetchKnowledgeQualityErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchKnowledgeQualityError = FetchKnowledgeQualityErrors[keyof FetchKnowledgeQualityErrors];
+
+export type FetchKnowledgeQualityResponses = {
+    /**
+     * Index quality
+     */
+    200: KnowledgeQuality;
+};
+
+export type FetchKnowledgeQualityResponse = FetchKnowledgeQualityResponses[keyof FetchKnowledgeQualityResponses];
+
+export type SearchKnowledgeData = {
+    body: KnowledgeSearchRequest;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/knowledge/search';
+};
+
+export type SearchKnowledgeErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type SearchKnowledgeError = SearchKnowledgeErrors[keyof SearchKnowledgeErrors];
+
+export type SearchKnowledgeResponses = {
+    /**
+     * Ranked knowledge chunks
+     */
+    200: KnowledgeSearchResponse;
+};
+
+export type SearchKnowledgeResponse = SearchKnowledgeResponses[keyof SearchKnowledgeResponses];
+
+export type FetchKnowledgeGraphStatusData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/knowledge/graph/status';
+};
+
+export type FetchKnowledgeGraphStatusErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+    /**
+     * Resource not found
+     */
+    404: ErrorDetail;
+};
+
+export type FetchKnowledgeGraphStatusError = FetchKnowledgeGraphStatusErrors[keyof FetchKnowledgeGraphStatusErrors];
+
+export type FetchKnowledgeGraphStatusResponses = {
+    /**
+     * GraphRAG index status and entity counts
+     */
+    200: KnowledgeGraphStatus;
+};
+
+export type FetchKnowledgeGraphStatusResponse = FetchKnowledgeGraphStatusResponses[keyof FetchKnowledgeGraphStatusResponses];
+
+export type SearchKnowledgeGraphData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query: {
+        /**
+         * Text, qualified symbol name, or code fragment to search
+         */
+        q: string;
+        /**
+         * Restrict results to one graph entity type
+         */
+        type?: 'repository' | 'module' | 'file' | 'class' | 'interface' | 'function' | 'method' | 'variable' | 'community' | 'chunk';
+        /**
+         * Case-insensitive programming-language filter
+         */
+        language?: string;
+        /**
+         * Repository-relative path prefix
+         */
+        path?: string;
+        /**
+         * Maximum number of returned nodes
+         */
+        limit?: number;
+    };
+    url: '/api/repos/{repoId}/knowledge/graph/search';
+};
+
+export type SearchKnowledgeGraphErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type SearchKnowledgeGraphError = SearchKnowledgeGraphErrors[keyof SearchKnowledgeGraphErrors];
+
+export type SearchKnowledgeGraphResponses = {
+    /**
+     * Ranked graph entities
+     */
+    200: KnowledgeGraphSearchResponse;
+};
+
+export type SearchKnowledgeGraphResponse = SearchKnowledgeGraphResponses[keyof SearchKnowledgeGraphResponses];
+
+export type FetchKnowledgeGraphCallersData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query: {
+        /**
+         * Stable graph node id or qualified symbol name
+         */
+        symbol: string;
+        /**
+         * Maximum traversal depth
+         */
+        depth?: number;
+        /**
+         * Maximum number of returned nodes
+         */
+        limit?: number;
+    };
+    url: '/api/repos/{repoId}/graph/callers';
+};
+
+export type FetchKnowledgeGraphCallersErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+    /**
+     * Resource not found
+     */
+    404: ErrorDetail;
+};
+
+export type FetchKnowledgeGraphCallersError = FetchKnowledgeGraphCallersErrors[keyof FetchKnowledgeGraphCallersErrors];
+
+export type FetchKnowledgeGraphCallersResponses = {
+    /**
+     * Incoming call relationships
+     */
+    200: KnowledgeGraphTraversalResponse;
+};
+
+export type FetchKnowledgeGraphCallersResponse = FetchKnowledgeGraphCallersResponses[keyof FetchKnowledgeGraphCallersResponses];
+
+export type FetchKnowledgeGraphCalleesData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query: {
+        /**
+         * Stable graph node id or qualified symbol name
+         */
+        symbol: string;
+        /**
+         * Maximum traversal depth
+         */
+        depth?: number;
+        /**
+         * Maximum number of returned nodes
+         */
+        limit?: number;
+    };
+    url: '/api/repos/{repoId}/graph/callees';
+};
+
+export type FetchKnowledgeGraphCalleesErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+    /**
+     * Resource not found
+     */
+    404: ErrorDetail;
+};
+
+export type FetchKnowledgeGraphCalleesError = FetchKnowledgeGraphCalleesErrors[keyof FetchKnowledgeGraphCalleesErrors];
+
+export type FetchKnowledgeGraphCalleesResponses = {
+    /**
+     * Outgoing call relationships
+     */
+    200: KnowledgeGraphTraversalResponse;
+};
+
+export type FetchKnowledgeGraphCalleesResponse = FetchKnowledgeGraphCalleesResponses[keyof FetchKnowledgeGraphCalleesResponses];
+
+export type FetchKnowledgeGraphImpactData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query: {
+        /**
+         * Stable graph node id or qualified symbol name
+         */
+        symbol: string;
+        /**
+         * Maximum traversal depth
+         */
+        depth?: number;
+        /**
+         * Maximum number of returned nodes
+         */
+        limit?: number;
+    };
+    url: '/api/repos/{repoId}/graph/impact';
+};
+
+export type FetchKnowledgeGraphImpactErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+    /**
+     * Resource not found
+     */
+    404: ErrorDetail;
+};
+
+export type FetchKnowledgeGraphImpactError = FetchKnowledgeGraphImpactErrors[keyof FetchKnowledgeGraphImpactErrors];
+
+export type FetchKnowledgeGraphImpactResponses = {
+    /**
+     * Transitive impact relationships
+     */
+    200: KnowledgeGraphTraversalResponse;
+};
+
+export type FetchKnowledgeGraphImpactResponse = FetchKnowledgeGraphImpactResponses[keyof FetchKnowledgeGraphImpactResponses];
+
+export type ExploreKnowledgeGraphData = {
+    body: KnowledgeGraphExploreRequest;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/graph/explore';
+};
+
+export type ExploreKnowledgeGraphErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type ExploreKnowledgeGraphError = ExploreKnowledgeGraphErrors[keyof ExploreKnowledgeGraphErrors];
+
+export type ExploreKnowledgeGraphResponses = {
+    /**
+     * Bounded graph neighborhood
+     */
+    200: KnowledgeGraphExploreResponse;
+};
+
+export type ExploreKnowledgeGraphResponse = ExploreKnowledgeGraphResponses[keyof ExploreKnowledgeGraphResponses];
+
+export type FetchKnowledgeGraphAffectedData = {
+    body: KnowledgeGraphAffectedRequest;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/graph/affected';
+};
+
+export type FetchKnowledgeGraphAffectedErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchKnowledgeGraphAffectedError = FetchKnowledgeGraphAffectedErrors[keyof FetchKnowledgeGraphAffectedErrors];
+
+export type FetchKnowledgeGraphAffectedResponses = {
+    /**
+     * Entities affected by the requested file changes
+     */
+    200: KnowledgeGraphAffectedResponse;
+};
+
+export type FetchKnowledgeGraphAffectedResponse = FetchKnowledgeGraphAffectedResponses[keyof FetchKnowledgeGraphAffectedResponses];
+
+export type GenerateKnowledgeWikiData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: {
+        /**
+         * BCP 47 language tag; defaults to repository or server preference
+         */
+        language?: string;
+    };
+    url: '/api/repos/{repoId}/knowledge/wiki/generate';
+};
+
+export type GenerateKnowledgeWikiErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type GenerateKnowledgeWikiError = GenerateKnowledgeWikiErrors[keyof GenerateKnowledgeWikiErrors];
+
+export type GenerateKnowledgeWikiResponses = {
+    /**
+     * Wiki generation accepted
+     */
+    202: KnowledgeWikiGeneration;
+};
+
+export type GenerateKnowledgeWikiResponse = GenerateKnowledgeWikiResponses[keyof GenerateKnowledgeWikiResponses];
+
+export type FetchKnowledgeWikiData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: {
+        /**
+         * BCP 47 language tag; defaults to repository or server preference
+         */
+        language?: string;
+    };
+    url: '/api/repos/{repoId}/knowledge/wiki';
+};
+
+export type FetchKnowledgeWikiErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+    /**
+     * Resource not found
+     */
+    404: ErrorDetail;
+};
+
+export type FetchKnowledgeWikiError = FetchKnowledgeWikiErrors[keyof FetchKnowledgeWikiErrors];
+
+export type FetchKnowledgeWikiResponses = {
+    /**
+     * Generated wiki pages
+     */
+    200: KnowledgeWiki;
+};
+
+export type FetchKnowledgeWikiResponse = FetchKnowledgeWikiResponses[keyof FetchKnowledgeWikiResponses];
 
 export type SendChatMessageData = {
     body: ChatRequest;
@@ -897,3 +2044,417 @@ export type ExecuteNlCommandResponses = {
 };
 
 export type ExecuteNlCommandResponse = ExecuteNlCommandResponses[keyof ExecuteNlCommandResponses];
+
+export type FetchRepoFaqData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/faq';
+};
+
+export type FetchRepoFaqErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchRepoFaqError = FetchRepoFaqErrors[keyof FetchRepoFaqErrors];
+
+export type FetchRepoFaqResponses = {
+    /**
+     * FAQ list
+     */
+    200: FaqListResponse;
+};
+
+export type FetchRepoFaqResponse = FetchRepoFaqResponses[keyof FetchRepoFaqResponses];
+
+export type GenerateRepoFaqData = {
+    body?: FaqGenerateRequest;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: never;
+    url: '/api/repos/{repoId}/faq/generate';
+};
+
+export type GenerateRepoFaqErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+    /**
+     * Resource not found
+     */
+    404: ErrorDetail;
+};
+
+export type GenerateRepoFaqError = GenerateRepoFaqErrors[keyof GenerateRepoFaqErrors];
+
+export type GenerateRepoFaqResponses = {
+    /**
+     * Generated FAQ list
+     */
+    200: FaqListResponse;
+};
+
+export type GenerateRepoFaqResponse = GenerateRepoFaqResponses[keyof GenerateRepoFaqResponses];
+
+export type ExportRepoFaqData = {
+    body?: never;
+    path: {
+        /**
+         * GitHub repository numeric id (string in frontend paths)
+         */
+        repoId: string;
+    };
+    query?: {
+        format?: 'markdown' | 'json';
+    };
+    url: '/api/repos/{repoId}/faq/export';
+};
+
+export type ExportRepoFaqErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type ExportRepoFaqError = ExportRepoFaqErrors[keyof ExportRepoFaqErrors];
+
+export type ExportRepoFaqResponses = {
+    /**
+     * Exported FAQ document
+     */
+    200: FaqExportResponse;
+};
+
+export type ExportRepoFaqResponse = ExportRepoFaqResponses[keyof ExportRepoFaqResponses];
+
+export type FetchNotificationSettingsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/user/setting/notifications';
+};
+
+export type FetchNotificationSettingsErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchNotificationSettingsError = FetchNotificationSettingsErrors[keyof FetchNotificationSettingsErrors];
+
+export type FetchNotificationSettingsResponses = {
+    /**
+     * Notification preferences
+     */
+    200: NotificationSettings;
+};
+
+export type FetchNotificationSettingsResponse = FetchNotificationSettingsResponses[keyof FetchNotificationSettingsResponses];
+
+export type UpdateNotificationSettingsData = {
+    body: NotificationSettingsUpdate;
+    path?: never;
+    query?: never;
+    url: '/api/user/setting/notifications';
+};
+
+export type UpdateNotificationSettingsErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type UpdateNotificationSettingsError = UpdateNotificationSettingsErrors[keyof UpdateNotificationSettingsErrors];
+
+export type UpdateNotificationSettingsResponses = {
+    /**
+     * Updated preferences
+     */
+    200: NotificationSettings;
+};
+
+export type UpdateNotificationSettingsResponse = UpdateNotificationSettingsResponses[keyof UpdateNotificationSettingsResponses];
+
+export type SendTestNotificationData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/user/setting/notifications/test';
+};
+
+export type SendTestNotificationErrors = {
+    /**
+     * Invalid request
+     */
+    400: ErrorDetail;
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type SendTestNotificationError = SendTestNotificationErrors[keyof SendTestNotificationErrors];
+
+export type SendTestNotificationResponses = {
+    /**
+     * Stub send result
+     */
+    200: NotificationTestResult;
+};
+
+export type SendTestNotificationResponse = SendTestNotificationResponses[keyof SendTestNotificationResponses];
+
+export type AdminLoginData = {
+    body: AdminLoginRequest;
+    path?: never;
+    query?: never;
+    url: '/api/admin/login';
+};
+
+export type AdminLoginErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type AdminLoginError = AdminLoginErrors[keyof AdminLoginErrors];
+
+export type AdminLoginResponses = {
+    /**
+     * Admin session
+     */
+    200: AdminLoginResponse;
+};
+
+export type AdminLoginResponse2 = AdminLoginResponses[keyof AdminLoginResponses];
+
+export type FetchAdminOverviewData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/overview';
+};
+
+export type FetchAdminOverviewErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchAdminOverviewError = FetchAdminOverviewErrors[keyof FetchAdminOverviewErrors];
+
+export type FetchAdminOverviewResponses = {
+    /**
+     * Overview
+     */
+    200: AdminOverview;
+};
+
+export type FetchAdminOverviewResponse = FetchAdminOverviewResponses[keyof FetchAdminOverviewResponses];
+
+export type FetchAdminSyncTasksData = {
+    body?: never;
+    path?: never;
+    query?: {
+        status?: string;
+        keyword?: string;
+        limit?: number;
+    };
+    url: '/api/admin/sync-tasks';
+};
+
+export type FetchAdminSyncTasksErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchAdminSyncTasksError = FetchAdminSyncTasksErrors[keyof FetchAdminSyncTasksErrors];
+
+export type FetchAdminSyncTasksResponses = {
+    /**
+     * Sync tasks
+     */
+    200: AdminSyncTaskList;
+};
+
+export type FetchAdminSyncTasksResponse = FetchAdminSyncTasksResponses[keyof FetchAdminSyncTasksResponses];
+
+export type FetchAdminSyncFailuresData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+    };
+    url: '/api/admin/sync-failures';
+};
+
+export type FetchAdminSyncFailuresErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchAdminSyncFailuresError = FetchAdminSyncFailuresErrors[keyof FetchAdminSyncFailuresErrors];
+
+export type FetchAdminSyncFailuresResponses = {
+    /**
+     * Failures
+     */
+    200: AdminSyncFailureList;
+};
+
+export type FetchAdminSyncFailuresResponse = FetchAdminSyncFailuresResponses[keyof FetchAdminSyncFailuresResponses];
+
+export type FetchAdminIntegrityData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+    };
+    url: '/api/admin/integrity';
+};
+
+export type FetchAdminIntegrityErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchAdminIntegrityError = FetchAdminIntegrityErrors[keyof FetchAdminIntegrityErrors];
+
+export type FetchAdminIntegrityResponses = {
+    /**
+     * Integrity checks
+     */
+    200: AdminIntegrityList;
+};
+
+export type FetchAdminIntegrityResponse = FetchAdminIntegrityResponses[keyof FetchAdminIntegrityResponses];
+
+export type FetchAdminFaqReposData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/faq/repos';
+};
+
+export type FetchAdminFaqReposErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchAdminFaqReposError = FetchAdminFaqReposErrors[keyof FetchAdminFaqReposErrors];
+
+export type FetchAdminFaqReposResponses = {
+    /**
+     * FAQ repo options
+     */
+    200: AdminFaqRepoList;
+};
+
+export type FetchAdminFaqReposResponse = FetchAdminFaqReposResponses[keyof FetchAdminFaqReposResponses];
+
+export type ExportAdminFaqData = {
+    body: AdminFaqExportRequest;
+    path?: never;
+    query?: never;
+    url: '/api/admin/faq/export';
+};
+
+export type ExportAdminFaqErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type ExportAdminFaqError = ExportAdminFaqErrors[keyof ExportAdminFaqErrors];
+
+export type ExportAdminFaqResponses = {
+    /**
+     * Exported document
+     */
+    200: AdminFaqExportResponse;
+};
+
+export type ExportAdminFaqResponse = ExportAdminFaqResponses[keyof ExportAdminFaqResponses];
+
+export type FetchAdminAuditLogsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+    };
+    url: '/api/admin/audit-logs';
+};
+
+export type FetchAdminAuditLogsErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchAdminAuditLogsError = FetchAdminAuditLogsErrors[keyof FetchAdminAuditLogsErrors];
+
+export type FetchAdminAuditLogsResponses = {
+    /**
+     * Audit logs
+     */
+    200: AdminAuditLogList;
+};
+
+export type FetchAdminAuditLogsResponse = FetchAdminAuditLogsResponses[keyof FetchAdminAuditLogsResponses];
+
+export type FetchAdminUsersData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/users';
+};
+
+export type FetchAdminUsersErrors = {
+    /**
+     * Missing or invalid Bearer token. Frontend clears auth and redirects to `/login`.
+     */
+    401: ErrorDetail;
+};
+
+export type FetchAdminUsersError = FetchAdminUsersErrors[keyof FetchAdminUsersErrors];
+
+export type FetchAdminUsersResponses = {
+    /**
+     * Users
+     */
+    200: AdminUserList;
+};
+
+export type FetchAdminUsersResponse = FetchAdminUsersResponses[keyof FetchAdminUsersResponses];
