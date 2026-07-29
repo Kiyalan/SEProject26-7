@@ -8,6 +8,7 @@ import App from './App.tsx'
 import './index.css'
 import './styles/github-theme.css'
 import './styles/admin-theme.css'
+import './styles/global.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
