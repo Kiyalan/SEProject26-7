@@ -87,15 +87,16 @@ public class FaqService {
             generated.add(item);
         }
 
-        jdbc.update("DELETE FROM repo_faq_items WHERE repo_id = ?", repoId);
+        jdbc.update("DELETE FROM repo_faq_items WHERE repo_id = ? AND category <> 'chat'", repoId);
         for (Map<String, Object> item : generated) {
             jdbc.update("""
                     INSERT INTO repo_faq_items
-                    (id, repo_id, category, question, answer, related_files, confidence, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, repo_id, owner_login, category, question, answer, related_files, confidence, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     item.get("id"),
                     repoId,
+                    ownerLogin == null ? "" : ownerLogin,
                     item.get("category"),
                     item.get("question"),
                     item.get("answer"),
@@ -130,7 +131,7 @@ public class FaqService {
 
     /** Persist one chat Q&A turn into the repo FAQ list (manual curation). */
     @Transactional
-    public Map<String, Object> addFromChat(String repoId, String question, String answer, String category) {
+    public Map<String, Object> addFromChat(String repoId, String ownerLogin, String question, String answer, String category) {
         String q = question == null ? "" : question.trim();
         String a = answer == null ? "" : answer.trim();
         if (q.isBlank() || a.isBlank()) {
@@ -148,12 +149,13 @@ public class FaqService {
         }
         String now = LocalDateTime.now(ZoneOffset.UTC).format(TS);
         String id = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        String owner = ownerLogin == null ? "" : ownerLogin.trim();
         jdbc.update("""
                 INSERT INTO repo_faq_items
-                (id, repo_id, category, question, answer, related_files, confidence, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, repo_id, owner_login, category, question, answer, related_files, confidence, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                id, repoId, cat, q, a, "[]", 0.8, now);
+                id, repoId, owner, cat, q, a, "[]", 0.8, now);
 
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("id", id);

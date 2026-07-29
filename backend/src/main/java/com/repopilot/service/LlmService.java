@@ -107,8 +107,16 @@ public class LlmService {
                         + c.get("file") + ":" + c.get("line") + "]\n" + c.get("content"))
                 .reduce((a, b) -> a + "\n\n" + b)
                 .orElse("");
-        String intentInstruction = intent.contains("branches")
-                ? "这是分支问题：必须依据 branch_list 上下文列出分支名，并用 aheadOfDefault/behindDefault/relation/littleUniqueContent 判断落后或几乎无独有内容。不要说看不到分支。"
+        String formatInstruction = "排版要求：用换行分段，便于阅读；禁止使用 Markdown 加粗（不要输出 **文字**）；"
+                + "需要强调时用两个空格或「」即可，不要用星号、井号标题。";
+        String statusInstruction = "若上下文含 knowledge_status 且 knowledgeBuilt=true，或含 community / graph_explore，"
+                + "必须明确回答「知识库已构建」；图社区与节点就是构建结果，不要因为没有「构建日志」就说未构建。";
+        String intentInstruction = intent.contains("knowledge_status")
+                ? "这是知识库状态问题：只依据 knowledge_status 中的 knowledgeBuilt / nodeCount / chunkCount 回答是否已构建，先给结论再列数字。"
+                : intent.contains("branches")
+                ? "这是分支问题：只准使用 branch_list 中的 aheadOfDefault/behindDefault/relation/littleUniqueContent 原数字，禁止改写或编造。"
+                        + "「最靠前」= ahead 最大；「几乎无独有提交」= ahead=0（littleUniqueContent=true），不要说成业务上「最没用」。"
+                        + "不要根据 tipMessage 臆测分支代码内容；CodeWiki 未索引非默认分支。"
                 : intent.contains("portfolio")
                 ? "这是多仓库问题：必须依据 portfolio 上下文列出具体仓库全名，区分「几乎没有内容/未索引」与「可能落后」。不要说无法判断，除非 portfolio 上下文缺失。"
                 : intent.contains("history")
@@ -119,16 +127,17 @@ public class LlmService {
                 ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署；缺少 Docker 或生产文档时明确指出。"
                 : "优先使用 GraphRAG 上下文（graph_rag_answer、graph_explore、community、graph_nodes），依据社区摘要与图关系回答；不要依赖杂乱原始 chunk。";
         String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。" + intentInstruction;
+                + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。"
+                + formatInstruction + statusInstruction + intentInstruction;
         String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
                 + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
                 + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
         try {
             int maxTokens = intent.contains("history") || intent.contains("api")
                     || intent.contains("portfolio") || intent.contains("branches") ? 3000 : 1800;
-            return chatCompletion(systemPrompt, userPrompt, maxTokens);
+            return sanitizeAnswer(chatCompletion(systemPrompt, userPrompt, maxTokens));
         } catch (Exception ex) {
-            return buildFallback(question, questionType, contexts, intent) + "\n\n（" + ex.getMessage() + "）";
+            return sanitizeAnswer(buildFallback(question, questionType, contexts, intent) + "\n\n（" + ex.getMessage() + "）");
         }
     }
 
@@ -324,7 +333,7 @@ public class LlmService {
         if (!llmEnabled || contexts.isEmpty()) {
             String fallback = contexts.isEmpty()
                     ? "未检索到可用知识库证据。请确认已构建 GraphRAG，或换一种问法后重试。"
-                    : buildFallback(message, questionType, contexts, intent);
+                    : sanitizeAnswer(buildFallback(message, questionType, contexts, intent));
             emitter.send(SseEmitter.event()
                     .name("meta")
                     .data(mapper.writeValueAsString(Map.of(
@@ -364,8 +373,15 @@ public class LlmService {
                 .reduce((a, b) -> a + "\n\n" + b)
                 .orElse("");
 
-        String intentInstruction = intent.contains("branches")
-                ? "这是分支问题：必须依据 branch_list 上下文列出分支名，并用 aheadOfDefault/behindDefault/relation/littleUniqueContent 判断落后或几乎无独有内容。不要说看不到分支。"
+        String formatInstruction = "排版要求：用换行分段；禁止输出 Markdown 加粗（不要用 **文字**）；强调用两个空格或「」。";
+        String statusInstruction = "若上下文含 knowledge_status 且 knowledgeBuilt=true，或含 community / graph_explore，"
+                + "必须明确「知识库已构建」；图社区与节点就是构建结果。";
+        String intentInstruction = intent.contains("knowledge_status")
+                ? "这是知识库状态问题：只依据 knowledge_status 回答是否已构建，先结论再列数字。"
+                : intent.contains("branches")
+                ? "这是分支问题：只准使用 branch_list 中的 aheadOfDefault/behindDefault/relation/littleUniqueContent 原数字，禁止改写或编造。"
+                        + "「最靠前」= ahead 最大；ahead=0 只表示无独有提交，不要说成业务上「最没用」。"
+                        + "不要根据 tipMessage 臆测分支代码；CodeWiki 未索引非默认分支。"
                 : intent.contains("portfolio")
                 ? "这是多仓库问题：必须依据 portfolio 上下文列出具体仓库全名，区分「几乎没有内容/未索引」与「可能落后」。不要说无法判断，除非 portfolio 上下文缺失。"
                 : intent.contains("history")
@@ -377,7 +393,8 @@ public class LlmService {
                 : "优先使用 GraphRAG 上下文（graph_rag_answer、graph_explore、community、graph_nodes），依据社区摘要与图关系回答；不要依赖杂乱原始 chunk。";
 
         String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。" + intentInstruction;
+                + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。"
+                + formatInstruction + statusInstruction + intentInstruction;
         String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
                 + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
                 + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
@@ -463,13 +480,24 @@ public class LlmService {
                         + "）。请确认模型可用，推荐 openai/gpt-oss-20b:free");
                 return;
             }
-            // 发送完成信号
+            String cleaned = sanitizeAnswer(fullContent.toString());
             emitter.send(SseEmitter.event()
                     .name("done")
-                    .data(mapper.writeValueAsString(Map.of("answer", fullContent.toString()))));
+                    .data(mapper.writeValueAsString(Map.of("answer", cleaned))));
         } finally {
             conn.disconnect();
         }
+    }
+
+    /** Strip Markdown bold markers; keep newlines for readable plain text. */
+    static String sanitizeAnswer(String text) {
+        if (text == null || text.isBlank()) {
+            return text == null ? "" : text;
+        }
+        String out = text.replace("**", "");
+        // collapse accidental leftover single emphasis runs like *word* used as bold
+        out = out.replaceAll("(?m)^#{1,6}\\s+", "");
+        return out.trim();
     }
 
 }

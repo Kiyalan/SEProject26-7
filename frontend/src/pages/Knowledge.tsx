@@ -1,5 +1,6 @@
-import { FileIcon, FileDirectoryIcon, GitCommitIcon, PackageIcon, SyncIcon } from '@primer/octicons-react'
-import { Alert, Modal, Spin, message } from 'antd'
+import { FileIcon, FileDirectoryIcon, GitCommitIcon, PackageIcon } from '@primer/octicons-react'
+import { Alert, Button, Modal, Select, Spin, message } from 'antd'
+import { SyncOutlined } from '@ant-design/icons'
 import type { DataNode } from 'antd/es/tree'
 import { Tree } from 'antd'
 import { useCallback, useEffect, useState } from 'react'
@@ -503,32 +504,27 @@ export default function Knowledge() {
       description="CodeWiki GraphRAG 代码知识图谱、按需 Wiki 与历史版本对比"
       actions={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select
-            className="gh-btn"
-            value={currentRepoId}
-            onChange={(e) => setCurrentRepo(e.target.value)}
-            style={{ minWidth: 180 }}
-          >
-            {repoList.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.fullName}
-              </option>
-            ))}
-          </select>
-          <button type="button" className="gh-btn gh-btn-primary" disabled={building} onClick={handleBuild}>
-            <SyncIcon size={14} />
+          <Select
+            value={currentRepoId || undefined}
+            onChange={(value) => setCurrentRepo(value)}
+            style={{ minWidth: 200 }}
+            placeholder="选择仓库"
+            options={repoList.map((r) => ({ value: r.id, label: r.fullName }))}
+          />
+          <Button type="primary" disabled={building} onClick={handleBuild} icon={<SyncOutlined />}>
             {building
               ? buildProgress > 0
                 ? `构建中 ${buildProgress}%`
                 : '构建中…'
               : '构建知识库'}
-          </button>
-          <button type="button" className="gh-btn" disabled={building} onClick={handleReset}>
+          </Button>
+          <Button disabled={building} onClick={handleReset}>
             重置知识库
-          </button>
+          </Button>
         </div>
       }
     >
+      <div className="knowledge-page">
       {building && (
         <Alert
           type="info"
@@ -797,7 +793,7 @@ export default function Knowledge() {
                   </div>
                 ))}
                 <p className="gh-muted" style={{ margin: '12px 0 0', fontSize: 12 }}>
-                  另可打开 CodeWiki UI：http://127.0.0.1:8001 （仅本机）。问答已改为优先使用社区摘要 + 图探索 + /ask，而非原始 chunks。
+                  另可打开 CodeWiki UI：http://127.0.0.1:8001 （仅本机）。问答优先使用社区摘要与图探索上下文。
                 </p>
               </div>
             </div>
@@ -893,8 +889,8 @@ export default function Knowledge() {
             </div>
             <div className="gh-box-body">
               {wiki?.pages.length ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 16 }}>
-                  <div style={{ borderRight: '1px solid var(--border)', paddingRight: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 16, maxHeight: 400, overflowY: 'auto' }}>
+                  <div style={{ borderRight: '1px solid var(--border)', paddingRight: 12, overflowY: 'auto', maxHeight: 400 }}>
                     {wiki.pages
                       .slice()
                       .sort((a, b) => a.order - b.order)
@@ -911,7 +907,7 @@ export default function Knowledge() {
                         </button>
                       ))}
                   </div>
-                  <article>
+                  <article style={{ maxHeight: 400, overflowY: 'auto' }}>
                     <h3 style={{ marginTop: 0 }}>{selectedWikiPage?.title}</h3>
                     <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.7, margin: 0 }}>
                       {selectedWikiPage?.content}
@@ -1018,7 +1014,7 @@ export default function Knowledge() {
             <div className="gh-box-header">
               构建日志
               <button type="button" className="gh-btn gh-btn-sm" onClick={() => currentRepoId && loadTasks(currentRepoId)}>
-                <SyncIcon size={12} />
+                <SyncOutlined />
                 刷新
               </button>
             </div>
@@ -1261,7 +1257,7 @@ export default function Knowledge() {
                   </span>
                 )}
               </div>
-              <div className="gh-box-body">
+              <div className="gh-box-body" style={{ maxHeight: 320, overflow: 'auto' }}>
                 {overview?.tree?.length ? (
                   <Tree showIcon defaultExpandAll treeData={toTreeData(overview.tree)} />
                 ) : (
@@ -1318,6 +1314,7 @@ export default function Knowledge() {
           </div>
         </>
       )}
+      </div>
     </PageShell>
   )
 }

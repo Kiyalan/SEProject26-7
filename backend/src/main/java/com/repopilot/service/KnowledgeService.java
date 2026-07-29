@@ -336,6 +336,56 @@ public class KnowledgeService {
                         + "\nlineCountNote: " + overview.getOrDefault("lineCountNote", ""));
     }
 
+    /**
+     * Explicit knowledge-base readiness for chat: graph communities/nodes ARE the build result.
+     * Prevents the LLM from claiming "未构建" when only structure text is present.
+     */
+    public Map<String, Object> knowledgeStatusContext(String repoId, String ownerLogin) {
+        Map<String, Object> overview = getOverview(repoId, ownerLogin, null);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> graph = overview.get("graphStatus") instanceof Map<?, ?> m
+                ? (Map<String, Object>) m
+                : Map.of();
+        String status = String.valueOf(overview.getOrDefault("status", "not_indexed"));
+        int files = numberOrZero(overview.get("fileCount"));
+        int chunks = numberOrZero(overview.get("chunkCount"));
+        int nodes = numberOrZero(graph.get("nodeCount"));
+        int edges = numberOrZero(graph.get("edgeCount"));
+        int communities = numberOrZero(graph.get("communityCount"));
+        boolean built = "ready".equals(status) && (nodes > 0 || chunks > 0 || files > 0);
+        String verdict = built
+                ? "knowledgeBuilt=true。知识库已构建完成。图节点/社区/边即 GraphRAG 构建结果，不是「未构建」。"
+                : "knowledgeBuilt=false。知识库尚未就绪（status=" + status
+                + "，nodes=" + nodes + "，chunks=" + chunks + "）。请先在知识库页点击构建。";
+        String content = verdict
+                + "\nrepo=" + overview.getOrDefault("fullName", repoId)
+                + "\nstatus=" + status
+                + "\nindexedAt=" + overview.getOrDefault("indexedAt", "")
+                + "\nfileCount=" + files
+                + "\nchunkCount=" + chunks
+                + "\ngraphNodeCount=" + nodes
+                + "\ngraphEdgeCount=" + edges
+                + "\ncommunityCount=" + communities
+                + "\n说明: 检索到的 community / graph_explore 内容本身就证明知识库已构建；"
+                + "不要因为上下文里没有「构建日志」字样就判断为未构建。";
+        Map<String, Object> row = evidence("knowledge/status", "knowledge_status", content);
+        row.put("score", 200);
+        row.put("retrievalType", "structured");
+        row.put("built", built);
+        return row;
+    }
+
+    private static int numberOrZero(Object value) {
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
     public Map<String, Object> compareCommits(String repoId, String baseSha, String headSha) {
         return git.compare(repoId, ownerLogin(repoId), baseSha, headSha);
     }

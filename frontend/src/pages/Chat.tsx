@@ -1,11 +1,17 @@
 import { projectDisplayName } from '../config/BaseConfig'
-import { Alert, Input, Spin, message as antdMessage } from 'antd'
-import { PaperAirplaneIcon, PersonIcon, SyncIcon, BookmarkIcon } from '@primer/octicons-react'
+import { Alert, Button, Card, Input, Select, Space, Spin, Tag, Typography, message as antdMessage } from 'antd'
+import {
+  BookOutlined,
+  SendOutlined,
+  SyncOutlined,
+  UserOutlined,
+  WarningOutlined,
+} from '@ant-design/icons'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import PageShell from '../components/layout/PageShell'
 import { useRepoContext } from '../context/RepoContext'
 import { fetchKnowledge, fetchLlmConfig } from '../api/generated'
-import { getToken } from '../lib/AuthAxios'
+import { authAxios, getToken } from '../lib/AuthAxios'
 import type { ChatMessage } from '../lib/FrontendTypes'
 import {
   beginChatRequest,
@@ -16,6 +22,20 @@ import {
   subscribeChatSession,
   updateChatMessages,
 } from '../lib/chatSessionStore'
+
+const { Text, Title, Paragraph } = Typography
+
+const SAMPLE_QUESTIONS = [
+  '这个项目是做什么的？',
+  '路由配置在哪里？',
+  '如何启动项目？',
+]
+
+const cardStyle = {
+  borderRadius: 12,
+  boxShadow: '0 2px 12px rgba(0, 0, 0, 0.06)',
+  border: '1px solid #e5e7eb',
+} as const
 
 const questionTypeMap: Record<string, { label: string; className: string }> = {
   what: { label: 'What', className: 'gh-label gh-label-blue' },
@@ -31,6 +51,7 @@ const intentLabels: Record<string, string> = {
   overview: '概览',
   branches: '分支',
   portfolio: '多仓库',
+  knowledge_status: '知识库状态',
 }
 
 function formatIntent(intent?: string) {
@@ -74,6 +95,12 @@ export default function Chat() {
   const session = useChatSession(currentRepoId || '__none__')
   const [llmEnabled, setLlmEnabled] = useState(false)
   const [knowledgeReady, setKnowledgeReady] = useState(false)
+  const [knowledgeMeta, setKnowledgeMeta] = useState<{
+    status: string
+    fileCount: number
+    chunkCount: number
+    nodeCount: number
+  } | null>(null)
   const [savingFaqId, setSavingFaqId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -86,15 +113,29 @@ export default function Chat() {
   useEffect(() => {
     if (!currentRepoId) {
       setKnowledgeReady(false)
+      setKnowledgeMeta(null)
       return
     }
     fetchKnowledge({ path: { repoId: currentRepoId } })
       .then(({ data }) => {
         const chunks = Number(data.chunkCount || 0)
-        const nodes = Number((data as { graphStatus?: { nodeCount?: number } }).graphStatus?.nodeCount || 0)
-        setKnowledgeReady(data.status === 'ready' && (chunks > 0 || nodes > 0))
+        const files = Number(data.fileCount || 0)
+        const graph = (data as { graphStatus?: { nodeCount?: number } }).graphStatus
+        const nodes = Number(graph?.nodeCount || 0)
+        const status = String(data.status || 'not_indexed')
+        const ready = status === 'ready' && (chunks > 0 || nodes > 0 || files > 0)
+        setKnowledgeReady(ready)
+        setKnowledgeMeta({
+          status,
+          fileCount: files,
+          chunkCount: chunks,
+          nodeCount: nodes,
+        })
       })
-      .catch(() => setKnowledgeReady(false))
+      .catch(() => {
+        setKnowledgeReady(false)
+        setKnowledgeMeta(null)
+      })
   }, [currentRepoId])
 
   useEffect(() => {
@@ -336,23 +377,11 @@ export default function Chat() {
     }
     setSavingFaqId(assistantMsg.id)
     try {
-      const token = getToken()
-      const res = await fetch(`/api/repos/${encodeURIComponent(currentRepoId)}/faq/items`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token ?? ''}`,
-        },
-        body: JSON.stringify({
-          question,
-          answer: assistantMsg.content,
-          category: 'chat',
-        }),
+      await authAxios.post(`/api/repos/${encodeURIComponent(currentRepoId)}/faq/items`, {
+        question,
+        answer: assistantMsg.content,
+        category: 'chat',
       })
-      if (!res.ok) {
-        const text = await res.text().catch(() => '加入 FAQ 失败')
-        throw new Error(text)
-      }
       antdMessage.success('已加入当前仓库 FAQ')
     } catch (err) {
       antdMessage.error(err instanceof Error ? err.message : '加入 FAQ 失败')
@@ -372,157 +401,191 @@ export default function Chat() {
           : '检索摘要模式（配置 LLM_API_KEY 可启用大模型）'
       }
       actions={
-        <select
-          className="gh-btn"
-          value={currentRepoId}
-          onChange={(e) => setCurrentRepo(e.target.value)}
-          style={{ minWidth: 220 }}
-        >
-          {repoList.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.fullName}
-            </option>
-          ))}
-        </select>
+        <Select
+          value={currentRepoId || undefined}
+          onChange={(value) => setCurrentRepo(value)}
+          style={{ minWidth: 240 }}
+          placeholder="选择仓库"
+          options={repoList.map((r) => ({ value: r.id, label: r.fullName }))}
+        />
       }
     >
-      {!knowledgeReady && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="当前仓库尚未构建知识库"
-          description="请先在「知识库」页面构建索引，或使用右侧「同步知识库」快捷操作。"
-        />
-      )}
-
-      <div className="gh-box" style={{ display: 'flex', flexDirection: 'column', minHeight: 520 }}>
-        <div className="gh-box-body" style={{ flex: 1, overflowY: 'auto', maxHeight: 440 }}>
-          {messages.length === 0 && !loading ? (
-            <p className="gh-muted" style={{ margin: 0 }}>
-              试试：「这个项目是做什么的？」「路由配置在哪里？」「如何启动项目？」
-            </p>
+      <div className="chat-page">
+        {currentRepoId && (
+          knowledgeReady ? (
+            <Alert
+              type="success"
+              showIcon
+              style={{ borderRadius: 10 }}
+              message="知识库已构建"
+              description={
+                knowledgeMeta
+                  ? `状态 ${knowledgeMeta.status} · 文件 ${knowledgeMeta.fileCount} · 片段 ${knowledgeMeta.chunkCount} · 图节点 ${knowledgeMeta.nodeCount}`
+                  : '当前仓库索引可用，可直接提问。'
+              }
+            />
           ) : (
-            messages.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  display: 'flex',
-                  gap: 12,
-                  marginBottom: 16,
-                  paddingBottom: 16,
-                  borderBottom: '1px solid var(--gh-border-muted)',
-                }}
-              >
+            <Alert
+              type="warning"
+              showIcon
+              icon={<WarningOutlined />}
+              style={{ borderRadius: 10 }}
+              message="当前仓库尚未构建知识库"
+              description="请先在「知识库」页面构建索引，或使用右侧「同步知识库」快捷操作。"
+            />
+          )
+        )}
+
+        <Card
+          style={{ ...cardStyle, display: 'flex', flexDirection: 'column', height: 'calc(100vh - 220px)' }}
+          styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', height: '100%' } }}
+        >
+          <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '24px 28px' }}>
+            {messages.length === 0 && !loading ? (
+              <div style={{ textAlign: 'center', padding: '48px 0' }}>
+                <Title level={5} style={{ marginBottom: 16, color: '#111827' }}>
+                  试试问这些问题
+                </Title>
+                <Space wrap size={10} style={{ justifyContent: 'center' }}>
+                  {SAMPLE_QUESTIONS.map((q) => (
+                    <Tag
+                      key={q}
+                      color="blue"
+                      style={{ borderRadius: 10, padding: '6px 12px', fontSize: 13, cursor: 'pointer' }}
+                      onClick={() => {
+                        if (currentRepoId) patchChatSession(currentRepoId, { input: q })
+                      }}
+                    >
+                      {q}
+                    </Tag>
+                  ))}
+                </Space>
+              </div>
+            ) : (
+              messages.map((item) => (
                 <div
+                  key={item.id}
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    background: item.role === 'user' ? '#ddf4ff' : item.error ? '#ffebe9' : '#dafbe1',
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
+                    gap: 12,
+                    marginBottom: 16,
+                    paddingBottom: 16,
+                    borderBottom: '1px solid #f0f2f5',
                   }}
                 >
-                  {item.role === 'user' ? <PersonIcon size={16} /> : <span>🤖</span>}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                    <strong>{item.role === 'user' ? '你' : projectDisplayName}</strong>
-                    {item.questionType && (
-                      <span className={questionTypeMap[item.questionType]?.className ?? 'gh-label'}>
-                        {questionTypeMap[item.questionType]?.label ?? item.questionType}
-                      </span>
-                    )}
-                    {item.intent && (
-                      <span className="gh-label rp-intent">意图 · {formatIntent(item.intent)}</span>
-                    )}
-                    {item.emptyEvidence && <span className="gh-label gh-label-orange">无证据</span>}
-                    {item.error && <span className="gh-label gh-label-red">失败</span>}
-                    {item.streaming && (
-                      <span className="gh-label gh-label-blue" style={{ animation: 'pulse 1s infinite' }}>
-                        ● 生成中
-                      </span>
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: '50%',
+                      background: item.role === 'user' ? '#E8F3FF' : item.error ? '#FFECE8' : '#E8FFEA',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      color: item.role === 'user' ? '#165DFF' : item.error ? '#F53F3F' : '#00B42A',
+                    }}
+                  >
+                    {item.role === 'user' ? <UserOutlined /> : <span>🤖</span>}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                      <Text strong>{item.role === 'user' ? '你' : projectDisplayName}</Text>
+                      {item.questionType && (
+                        <Tag style={{ borderRadius: 8 }}>
+                          {questionTypeMap[item.questionType]?.label ?? item.questionType}
+                        </Tag>
+                      )}
+                      {item.intent && (
+                        <Tag color="processing" style={{ borderRadius: 8 }}>
+                          意图 · {formatIntent(item.intent)}
+                        </Tag>
+                      )}
+                      {item.emptyEvidence && (
+                        <Tag color="orange" style={{ borderRadius: 8 }}>
+                          无证据
+                        </Tag>
+                      )}
+                      {item.error && (
+                        <Tag color="error" style={{ borderRadius: 8 }}>
+                          失败
+                        </Tag>
+                      )}
+                      {item.streaming && (
+                        <Tag color="blue" style={{ borderRadius: 8 }}>
+                          ● 生成中
+                        </Tag>
+                      )}
+                    </div>
+                    <Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+                      {item.content.replace(/\*\*/g, '')}
+                    </Paragraph>
+                    {item.citations?.map((c) => (
+                      <Text key={`${c.file}-${c.line}`} type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+                        引用：{c.file}
+                        {c.line ? `:${c.line}` : ''}
+                      </Text>
+                    ))}
+                    {item.role === 'assistant' && !item.error && !item.streaming && item.content.trim() && (
+                      <div style={{ marginTop: 10 }}>
+                        <Button
+                          size="small"
+                          icon={<BookOutlined />}
+                          loading={savingFaqId === item.id}
+                          onClick={() => addToFaq(item)}
+                        >
+                          加入 FAQ
+                        </Button>
+                      </div>
                     )}
                   </div>
-                  <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{item.content}</p>
-                  {item.citations?.map((c) => (
-                    <div key={`${c.file}-${c.line}`} className="gh-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                      引用：{c.file}
-                      {c.line ? `:${c.line}` : ''}
-                    </div>
-                  ))}
-                  {item.role === 'assistant' && !item.error && !item.streaming && item.content.trim() && (
-                    <div style={{ marginTop: 8 }}>
-                      <button
-                        type="button"
-                        className="gh-btn gh-btn-sm"
-                        disabled={savingFaqId === item.id}
-                        onClick={() => addToFaq(item)}
-                        title="将本轮问答写入当前仓库 FAQ"
-                      >
-                        <BookmarkIcon size={12} />
-                        {savingFaqId === item.id ? '保存中…' : '加入 FAQ'}
-                      </button>
-                    </div>
-                  )}
                 </div>
-              </div>
-            ))
-          )}
+              ))
+            )}
 
-          {loading && (
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8 }}>
-              <Spin size="small" />
-              <div>
-                <div className="rp-loading-pulse" style={{ fontWeight: 600 }}>
-                  {statusMessage || `${projectDisplayName} 正在检索并回答…`}
-                </div>
-                <div className="rp-typing" aria-hidden>
-                  <span />
-                  <span />
-                  <span />
+            {loading && (
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8 }}>
+                <Spin size="small" />
+                <div>
+                  <Text strong>{statusMessage || `${projectDisplayName} 正在检索并回答…`}</Text>
                 </div>
               </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--gh-border-muted)' }}>
-          {lastFailedQuestion && !loading && (
-            <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'flex-end' }}>
-              <button type="button" className="gh-btn gh-btn-sm" onClick={handleRetry}>
-                <SyncIcon size={12} />
-                重试上一问
-              </button>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Input
-              size="large"
-              placeholder="例如：路由配置在哪里？如何运行测试？"
-              value={input}
-              maxLength={MAX_QUESTION_LENGTH}
-              onChange={(e) => {
-                if (currentRepoId) patchChatSession(currentRepoId, { input: e.target.value })
-              }}
-              onPressEnter={handleSend}
-              disabled={loading}
-            />
-            <button
-              type="button"
-              className="gh-btn gh-btn-primary"
-              onClick={handleSend}
-              disabled={loading || !currentRepoId || !input.trim()}
-              style={{ height: 40, padding: '0 16px' }}
-            >
-              <PaperAirplaneIcon size={16} />
-              {loading ? '…' : '发送'}
-            </button>
+            )}
+            <div ref={bottomRef} />
           </div>
-        </div>
+
+          <div style={{ padding: '16px 20px', borderTop: '1px solid #f0f2f5', background: '#fafbfc' }}>
+            {lastFailedQuestion && !loading && (
+              <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                <Button size="small" icon={<SyncOutlined />} onClick={handleRetry}>
+                  重试上一问
+                </Button>
+              </div>
+            )}
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                size="large"
+                placeholder="例如：路由配置在哪里？如何运行测试？"
+                value={input}
+                maxLength={MAX_QUESTION_LENGTH}
+                onChange={(e) => {
+                  if (currentRepoId) patchChatSession(currentRepoId, { input: e.target.value })
+                }}
+                onPressEnter={handleSend}
+                disabled={loading}
+              />
+              <Button
+                type="primary"
+                size="large"
+                icon={<SendOutlined />}
+                onClick={handleSend}
+                disabled={loading || !currentRepoId || !input.trim()}
+              >
+                {loading ? '…' : '发送'}
+              </Button>
+            </Space.Compact>
+          </div>
+        </Card>
       </div>
     </PageShell>
   )

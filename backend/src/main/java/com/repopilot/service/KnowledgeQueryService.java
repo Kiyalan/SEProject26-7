@@ -58,6 +58,11 @@ public class KnowledgeQueryService {
         if (lower.contains("分支") || lower.contains("branch")) {
             intents.add("branches");
         }
+        if (containsAny(lower, "构建知识库", "知识库构建", "知识库是否", "知识库有没有",
+                "是否构建", "有没有构建", "还没有构建", "尚未构建", "有没有索引",
+                "是否已索引", "知识库就绪", "知识库准备好")) {
+            intents.add("knowledge_status");
+        }
         if (containsAny(lower, "哪些仓库", "哪个仓库", "仓库列表", "几乎没有内容", "空仓库", "没有内容",
                 "与main", "与 main", "版本落后", "落后很多", "无关", "portfolio", "repos",
                 "仓库是", "仓库的内容")) {
@@ -70,6 +75,12 @@ public class KnowledgeQueryService {
         }
 
         List<Map<String, Object>> contexts = new ArrayList<>();
+        try {
+            contexts.add(knowledgeService.knowledgeStatusContext(repoId, ownerLogin));
+        } catch (Exception ex) {
+            contexts.add(systemNotice("knowledge/status",
+                    "knowledgeBuilt=false。无法读取知识库状态：" + ex.getMessage()));
+        }
         try {
             if (intents.contains("branches")) {
                 contexts.addAll(knowledgeService.branchContexts(repoId, ownerLogin));
@@ -102,12 +113,20 @@ public class KnowledgeQueryService {
                 contexts.addAll(knowledgeService.retrieveChunksByPathHints(
                         repoId, ownerLogin, question + " 启动 配置 端口 环境变量", DEPLOY_PATH_HINTS, 8));
             }
-            // Prefer GraphRAG (explore + communities + /ask). Avoid raw chunk-only retrieval for chat.
-            if ((intents.contains("code")
+            // Prefer GraphRAG for code questions. Status-only questions skip heavy explore.
+            boolean statusOnly = intents.contains("knowledge_status")
+                    && !intents.contains("code")
+                    && !intents.contains("overview")
+                    && !intents.contains("api")
+                    && !intents.contains("deployment")
+                    && !intents.contains("history")
+                    && !intents.contains("portfolio")
+                    && !intents.contains("branches");
+            if (!statusOnly && ((intents.contains("code")
                     && !intents.contains("portfolio")
                     && !intents.contains("history")
                     && !intents.contains("branches"))
-                    || contexts.isEmpty()) {
+                    || contexts.size() <= 1)) {
                 contexts.addAll(knowledgeService.graphRagContexts(repoId, ownerLogin, question, 16));
             }
         } catch (Exception ex) {
@@ -239,7 +258,8 @@ public class KnowledgeQueryService {
                 || "graph_explore".equals(sourceType) || "graph_rag_answer".equals(sourceType)
                 || "community".equals(sourceType) || "graph_nodes".equals(sourceType)
                 || "graph_relationships".equals(sourceType)
-                || "system".equals(sourceType) || "repository_overview".equals(sourceType)) {
+                || "system".equals(sourceType) || "repository_overview".equals(sourceType)
+                || "knowledge_status".equals(sourceType)) {
             return false;
         }
         String file = String.valueOf(row.getOrDefault("file", "")).toLowerCase().replace('\\', '/');
