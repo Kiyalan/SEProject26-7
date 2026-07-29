@@ -1,118 +1,179 @@
-import { Alert, Spin } from 'antd'
-import { SyncIcon, MarkGithubIcon } from '@primer/octicons-react'
-import { useCallback, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import PageShell from '../components/layout/PageShell'
-import { useRepoContext } from '../context/RepoContext'
-import { getUsername } from '../lib/AuthAxios'
+import { Alert, Spin, Card, Tag, Typography, Space, Button } from 'antd';
+import { SyncOutlined, StarOutlined, ExclamationCircleOutlined, GithubOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import PageShell from '../components/layout/PageShell';
+import { useRepoContext } from '../context/RepoContext';
+import { getUsername } from '../lib/AuthAxios';
 
-const statusLabel = {
-  synced: { text: '已同步', className: 'gh-label gh-label-green' },
-  syncing: { text: '同步中', className: 'gh-label gh-label-blue' },
-  error: { text: '失败', className: 'gh-label gh-label-red' },
-}
+const { Text, Title, Paragraph } = Typography;
+
+const statusLabel: Record<string, { text: string; color: string }> = {
+  synced: { text: '已同步', color: 'success' },
+  syncing: { text: '同步中', color: 'processing' },
+  error: { text: '失败', color: 'error' },
+};
 
 export default function RepoList() {
-  const navigate = useNavigate()
-  const { repoList, isRepoListPending, isRepoListFetching, syncRepoList } = useRepoContext()
-  const [error, setError] = useState<string | null>(null)
-  const loading = isRepoListPending || isRepoListFetching
+  const navigate = useNavigate();
+  const { repoList, isRepoListPending, isRepoListFetching, syncRepoList } = useRepoContext();
+  const [error, setError] = useState<string | null>(null);
+  const loading = isRepoListPending || isRepoListFetching;
 
   const loadRepos = useCallback(async () => {
-    setError(null)
+    setError(null);
     try {
-      await syncRepoList()
+      await syncRepoList();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载仓库失败')
+      setError(err instanceof Error ? err.message : '加载仓库失败');
     }
-  }, [syncRepoList])
+  }, [syncRepoList]);
+
+  const getStatusBorderColor = (status: string): string => {
+    switch (status) {
+      case 'synced':
+        return '#00B42A';
+      case 'syncing':
+        return '#165DFF';
+      case 'error':
+        return '#F53F3F';
+      default:
+        return '#9CA3AF';
+    }
+  };
 
   return (
     <PageShell
       title="你的仓库"
       description={`已连接 GitHub 账号 ${getUsername()} · 共 ${repoList.length} 个仓库`}
       actions={
-        <button type="button" className="gh-btn" onClick={loadRepos} disabled={loading}>
-          <SyncIcon size={14} />
-          刷新
-        </button>
+        <Button type="primary" size="middle" icon={<SyncOutlined />} onClick={loadRepos} disabled={loading}>
+          刷新仓库
+        </Button>
       }
     >
-      {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 24 }} />}
 
-      <div className="gh-box">
-        <div className="gh-box-header">
-          <span>Repositories</span>
-          <span className="gh-muted" style={{ fontWeight: 400 }}>{repoList.length}</span>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '80px 0' }}>
+          <Spin size="large" />
+          <div style={{ marginTop: 16, color: '#6B7280' }}>加载仓库列表中...</div>
         </div>
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 48 }}>
-            <Spin />
-          </div>
-        ) : repoList.length === 0 ? (
-          <div className="gh-box-body">
-            <p className="gh-muted">暂无仓库，请确认 GitHub OAuth 权限包含 repo 读取。</p>
-          </div>
-        ) : (
-          repoList.map((repo) => (
-            <div key={repo.id} className="gh-repo-list-item">
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <a
-                  className="gh-repo-name"
-                  href={`/repos/${repo.id}`}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    navigate(`/repos/${repo.id}`)
-                  }}
-                >
-                  {repo.fullName}
-                </a>
-                {repo.private && (
-                  <span className="gh-label" style={{ marginLeft: 8, fontSize: 11 }}>
-                    Private
-                  </span>
-                )}
-                <p className="gh-muted" style={{ margin: '4px 0 8px' }}>
-                  {repo.description || '暂无描述'}
-                </p>
-                <div style={{ display: 'flex', gap: 12, fontSize: 12 }} className="gh-muted">
-                  {repo.language && repo.language !== '—' && (
-                    <span>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          width: 10,
-                          height: 10,
-                          borderRadius: '50%',
-                          background: '#3178c6',
-                          marginRight: 4,
-                        }}
-                      />
-                      {repo.language}
-                    </span>
-                  )}
-                  <span>★ {repo.stars.toLocaleString()}</span>
-                  <span>Issues {repo.openIssues}</span>
-                  <span>更新 {repo.lastSync}</span>
+      ) : repoList.length === 0 ? (
+        <Card variant="outlined" style={{ borderRadius: 12, textAlign: 'center', padding: '48px 0' }}>
+          <Text type="secondary">暂无仓库，请确认 GitHub OAuth 权限包含 repo 读取。</Text>
+        </Card>
+      ) : (
+        /* 仓库列表，占满主内容区 */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, width: '100%' }}>
+          {repoList.map((repo: any) => (
+            <Card
+              key={repo.id}
+              hoverable
+              variant="outlined"
+              className="repo-card repo-card-main"
+              style={{
+                borderRadius: 16,
+                borderLeft: `5px solid ${getStatusBorderColor(repo.syncStatus)}`,
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+              }}
+              bodyStyle={{ padding: '28px 32px' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Space size="middle" align="center" style={{ marginBottom: 14 }}>
+                    <Title
+                      level={4}
+                      className="repo-card-title"
+                      style={{ margin: 0, cursor: 'pointer' }}
+                      onClick={() => navigate(`/repos/${repo.id}`)}
+                    >
+                      {repo.fullName}
+                    </Title>
+
+                    <Tag
+                      color={statusLabel[repo.syncStatus]?.color || 'default'}
+                      style={{ borderRadius: 12, padding: '0 12px', fontSize: 12, height: 24, lineHeight: '22px' }}
+                    >
+                      {statusLabel[repo.syncStatus]?.text || '未知'}
+                    </Tag>
+
+                    {repo.private && (
+                      <Tag color="default" style={{ borderRadius: 12, padding: '0 10px', fontSize: 12, height: 24, lineHeight: '22px' }}>
+                        私有
+                      </Tag>
+                    )}
+                  </Space>
+
+                  <Paragraph
+                    type="secondary"
+                    style={{ marginBottom: 18, minHeight: 24, fontSize: 14 }}
+                    ellipsis={{ rows: 2 }}
+                  >
+                    {repo.description || '暂无描述'}
+                  </Paragraph>
+
+                  <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                    {repo.language && repo.language !== '--' && (
+                      <Space size={8}>
+                        <span
+                          style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: '50%',
+                            background: '#3178c6',
+                            display: 'inline-block',
+                          }}
+                        />
+                        <Text type="secondary" style={{ fontSize: 14 }}>{repo.language}</Text>
+                      </Space>
+                    )}
+
+                    <Space size={8}>
+                      <StarOutlined style={{ color: '#9CA3AF', fontSize: 16 }} />
+                      <Text type="secondary" style={{ fontSize: 14 }}>{repo.stars.toLocaleString()}</Text>
+                    </Space>
+
+                    <Space size={8}>
+                      <ExclamationCircleOutlined style={{ color: '#9CA3AF', fontSize: 16 }} />
+                      <Text type="secondary" style={{ fontSize: 14 }}>{repo.openIssues}</Text>
+                    </Space>
+
+                    {repo.lastSync && (
+                      <Text type="secondary" style={{ fontSize: 14 }}>更新：{repo.lastSync}</Text>
+                    )}
+                  </div>
                 </div>
+
+                <Space size={10}>
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<ArrowRightOutlined />}
+                    onClick={() => navigate(`/repos/${repo.id}`)}
+                    style={{ height: 40, paddingLeft: 20, paddingRight: 20, borderRadius: 10 }}
+                  >
+                    进入仓库
+                  </Button>
+
+                  {repo.htmlUrl && (
+                    <Button
+                      size="large"
+                      icon={<GithubOutlined />}
+                      href={repo.htmlUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ height: 40, borderRadius: 10 }}
+                    >
+                      GitHub
+                    </Button>
+                  )}
+                </Space>
               </div>
-              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                <span className={statusLabel[repo.syncStatus].className}>
-                  {statusLabel[repo.syncStatus].text}
-                </span>
-                <button type="button" className="gh-btn gh-btn-sm" onClick={() => navigate(`/repos/${repo.id}`)}>
-                  详情
-                </button>
-                {repo.htmlUrl && (
-                  <a className="gh-btn gh-btn-sm" href={repo.htmlUrl} target="_blank" rel="noreferrer">
-                    <MarkGithubIcon size={14} />
-                  </a>
-                )}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </PageShell>
-  )
+  );
 }

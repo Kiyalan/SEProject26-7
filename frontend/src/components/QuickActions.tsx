@@ -249,7 +249,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
               onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
             />
             <Input.TextArea
-              rows={6}
+              rows={8}
               placeholder="文件内容"
               value={form.content}
               onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
