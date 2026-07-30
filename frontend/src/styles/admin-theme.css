@@ -111,11 +111,6 @@
   font-weight: 600;
 }
 
-.admin-sidebar-foot {
-  padding: 12px 16px;
-  border-top: 1px solid var(--gh-border-muted);
-}
-
 .admin-main {
   flex: 1;
   min-width: 0;

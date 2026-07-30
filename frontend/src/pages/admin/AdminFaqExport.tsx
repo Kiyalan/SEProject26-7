@@ -31,7 +31,6 @@ export default function AdminFaqExport() {
   const columns: ColumnsType<AdminFaqRepoOption> = [
     { title: '仓库', dataIndex: 'repoFullName' },
     { title: 'FAQ 条目', dataIndex: 'faqCount', width: 100 },
-    { title: '记忆条目', dataIndex: 'memoryCount', width: 100 },
     { title: '最近更新', dataIndex: 'lastUpdated', width: 200, render: (v) => v || '—' },
   ]
 
@@ -79,8 +78,8 @@ export default function AdminFaqExport() {
       <Alert
         type="info"
         showIcon
-        message="数据来自各仓库 GraphRAG FAQ 聚类结果"
-        description="请先在知识库页生成 FAQ；此处聚合 repo_faq_items 真实数据。"
+        message="数据来自各仓库已入库的 FAQ"
+        description="请先在知识库页生成或导入 FAQ；此处聚合 repo_faq_items。"
         style={{ marginBottom: 16 }}
       />
 
