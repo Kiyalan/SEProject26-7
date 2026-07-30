@@ -109,7 +109,7 @@ public class LlmService {
                 .orElse("");
         String formatInstruction = "排版要求：用换行分段，便于阅读；禁止使用 Markdown 加粗（不要输出 **文字**）；"
                 + "需要强调时用两个空格或「」即可，不要用星号、井号标题。";
-        String statusInstruction = "若上下文含 knowledge_status 且 knowledgeBuilt=true，或含 community / graph_explore，"
+        String statusInstruction = "若上下文含 knowledge_status 且 knowledgeBuilt=true，或含 community / community_report / entity / graph_explore，"
                 + "必须明确回答「知识库已构建」；图社区与节点就是构建结果，不要因为没有「构建日志」就说未构建。";
         String intentInstruction = intent.contains("knowledge_status")
                 ? "这是知识库状态问题：只依据 knowledge_status 中的 knowledgeBuilt / nodeCount / chunkCount 回答是否已构建，先给结论再列数字。"
@@ -122,10 +122,12 @@ public class LlmService {
                 : intent.contains("history")
                 ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；是否对当前 HEAD「过时」证据不足时标为无法判断，不要编造。"
                 : intent.contains("api")
-                ? "接口问题优先依据 graph_rag_answer / graph_explore / community / api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权；不要只列前端函数名。"
+                ? "接口问题优先依据 entity / community_report / relationship / api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权；不要只列前端函数名。"
                 : intent.contains("deployment")
                 ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署；缺少 Docker 或生产文档时明确指出。"
-                : "优先使用 GraphRAG 上下文（graph_rag_answer、graph_explore、community、graph_nodes），依据社区摘要与图关系回答；不要依赖杂乱原始 chunk。";
+                : "优先使用标准 GraphRAG Local 上下文（code_window、entity、community_report、relationship）。"
+                        + "若存在 code_window，必须直接引用其中的源代码回答「源码/代码/实现」类问题，不要只复述实体元数据；"
+                        + "community_report 用于结构概览，不要用它替代源码。";
         String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
                 + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。"
                 + formatInstruction + statusInstruction + intentInstruction;
@@ -270,13 +272,22 @@ public class LlmService {
 
     public Map<String, Object> chat(String repoId, String message,
                                     List<Map<String, Object>> contexts, String intent) {
+        return chat(repoId, message, contexts, intent, "local", "");
+    }
+
+    public Map<String, Object> chat(String repoId, String message,
+                                    List<Map<String, Object>> contexts, String intent,
+                                    String searchMode, String precomputedAnswer) {
         String questionType = KnowledgeUtils.classifyQuestion(message);
         List<Map<String, Object>> citations = contexts.stream().limit(3)
                 .map(c -> Map.<String, Object>of("file", c.get("file"), "line", c.get("line")))
                 .toList();
         boolean llmEnabled = configured() && !contexts.isEmpty();
         String answer;
-        if (contexts.isEmpty()) {
+        if (precomputedAnswer != null && !precomputedAnswer.isBlank()) {
+            answer = sanitizeAnswer(precomputedAnswer);
+            llmEnabled = true;
+        } else if (contexts.isEmpty()) {
             answer = "未检索到可用知识库证据。请确认已构建 GraphRAG，或换一种问法后重试。"
                     + "（检测到意图: " + intent + "）";
         } else {
@@ -284,13 +295,14 @@ public class LlmService {
                     ? generateAnswer(message, questionType, contexts, intent)
                     : buildFallback(message, questionType, contexts, intent);
         }
-        return Map.of(
-                "answer", answer,
-                "questionType", questionType,
-                "citations", citations,
-                "llmEnabled", llmEnabled,
-                "intent", intent
-        );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("answer", answer);
+        result.put("questionType", questionType);
+        result.put("citations", citations);
+        result.put("llmEnabled", llmEnabled);
+        result.put("intent", intent);
+        result.put("searchMode", searchMode == null ? "local" : searchMode);
+        return result;
     }
 
     public SseEmitter streamChat(String repoId, String message, String questionType,
@@ -298,7 +310,7 @@ public class LlmService {
         SseEmitter emitter = new SseEmitter(300_000L);
         streamExecutor.execute(() -> {
             try {
-                streamInto(emitter, repoId, message, questionType, intent, contexts);
+                streamInto(emitter, repoId, message, questionType, intent, contexts, "local", "");
             } catch (Exception ex) {
                 try {
                     sendError(emitter, ex.getMessage());
@@ -325,23 +337,53 @@ public class LlmService {
     /** Drive an already-opened SSE emitter (retrieve may have run in caller). */
     public void streamInto(SseEmitter emitter, String repoId, String message, String questionType,
                            String intent, List<Map<String, Object>> contexts) throws Exception {
+        streamInto(emitter, repoId, message, questionType, intent, contexts, "local", "");
+    }
+
+    public void streamInto(SseEmitter emitter, String repoId, String message, String questionType,
+                           String intent, List<Map<String, Object>> contexts,
+                           String searchMode, String precomputedAnswer) throws Exception {
         List<Map<String, Object>> citations = contexts.stream().limit(3)
                 .map(c -> Map.<String, Object>of("file", c.get("file"), "line", c.get("line")))
                 .toList();
-        boolean llmEnabled = configured() && !contexts.isEmpty();
+        boolean hasGlobalAnswer = precomputedAnswer != null && !precomputedAnswer.isBlank();
+        boolean llmEnabled = hasGlobalAnswer || (configured() && !contexts.isEmpty());
+
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("questionType", questionType);
+        meta.put("citations", citations);
+        meta.put("llmEnabled", llmEnabled);
+        meta.put("intent", intent);
+        meta.put("searchMode", searchMode == null ? "local" : searchMode);
+
+        if (hasGlobalAnswer) {
+            String answer = sanitizeAnswer(precomputedAnswer);
+            emitter.send(SseEmitter.event()
+                    .name("meta")
+                    .data(mapper.writeValueAsString(meta)));
+            // Stream global reduce answer in chunks for SSE UX (no second LLM).
+            int chunk = 80;
+            for (int i = 0; i < answer.length(); i += chunk) {
+                String part = answer.substring(i, Math.min(answer.length(), i + chunk));
+                emitter.send(SseEmitter.event()
+                        .name("token")
+                        .data(mapper.writeValueAsString(Map.of("content", part))));
+            }
+            emitter.send(SseEmitter.event()
+                    .name("done")
+                    .data(mapper.writeValueAsString(Map.of("answer", answer))));
+            emitter.complete();
+            return;
+        }
 
         if (!llmEnabled || contexts.isEmpty()) {
             String fallback = contexts.isEmpty()
                     ? "未检索到可用知识库证据。请确认已构建 GraphRAG，或换一种问法后重试。"
                     : sanitizeAnswer(buildFallback(message, questionType, contexts, intent));
+            meta.put("llmEnabled", false);
             emitter.send(SseEmitter.event()
                     .name("meta")
-                    .data(mapper.writeValueAsString(Map.of(
-                            "questionType", questionType,
-                            "citations", citations,
-                            "llmEnabled", false,
-                            "intent", intent
-                    ))));
+                    .data(mapper.writeValueAsString(meta)));
             emitter.send(SseEmitter.event()
                     .name("token")
                     .data(mapper.writeValueAsString(Map.of("content", fallback))));
@@ -354,12 +396,7 @@ public class LlmService {
 
         emitter.send(SseEmitter.event()
                 .name("meta")
-                .data(mapper.writeValueAsString(Map.of(
-                        "questionType", questionType,
-                        "citations", citations,
-                        "llmEnabled", true,
-                        "intent", intent
-                ))));
+                .data(mapper.writeValueAsString(meta)));
         streamCompletion(emitter, message, questionType, contexts, intent);
         emitter.complete();
     }
@@ -374,7 +411,7 @@ public class LlmService {
                 .orElse("");
 
         String formatInstruction = "排版要求：用换行分段；禁止输出 Markdown 加粗（不要用 **文字**）；强调用两个空格或「」。";
-        String statusInstruction = "若上下文含 knowledge_status 且 knowledgeBuilt=true，或含 community / graph_explore，"
+        String statusInstruction = "若上下文含 knowledge_status 且 knowledgeBuilt=true，或含 community / community_report / entity / graph_explore，"
                 + "必须明确「知识库已构建」；图社区与节点就是构建结果。";
         String intentInstruction = intent.contains("knowledge_status")
                 ? "这是知识库状态问题：只依据 knowledge_status 回答是否已构建，先结论再列数字。"
@@ -387,10 +424,12 @@ public class LlmService {
                 : intent.contains("history")
                 ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；证据不足时标为无法判断。"
                 : intent.contains("api")
-                ? "接口问题优先依据 graph_rag_answer / graph_explore / community 上下文，列出 HTTP 方法、路径、用途和鉴权。"
+                ? "接口问题优先依据 entity / community_report / relationship 上下文，列出 HTTP 方法、路径、用途和鉴权。"
                 : intent.contains("deployment")
                 ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署。"
-                : "优先使用 GraphRAG 上下文（graph_rag_answer、graph_explore、community、graph_nodes），依据社区摘要与图关系回答；不要依赖杂乱原始 chunk。";
+                : "优先使用标准 GraphRAG Local 上下文（code_window、entity、community_report、relationship）。"
+                        + "若存在 code_window，必须直接引用其中的源代码回答「源码/代码/实现」类问题，不要只复述实体元数据；"
+                        + "community_report 用于结构概览，不要用它替代源码。";
 
         String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
                 + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。"

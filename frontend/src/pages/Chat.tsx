@@ -94,6 +94,7 @@ export default function Chat() {
   const { currentRepoId, setCurrentRepo, repoList } = useRepoContext()
   const session = useChatSession(currentRepoId || '__none__')
   const [llmEnabled, setLlmEnabled] = useState(false)
+  const [searchMode, setSearchMode] = useState<'auto' | 'local' | 'global'>('auto')
   const [knowledgeReady, setKnowledgeReady] = useState(false)
   const [knowledgeMeta, setKnowledgeMeta] = useState<{
     status: string
@@ -199,7 +200,7 @@ export default function Chat() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token ?? ''}`,
         },
-        body: JSON.stringify({ repoId: currentRepoId, message: trimmed }),
+        body: JSON.stringify({ repoId: currentRepoId, message: trimmed, mode: searchMode }),
         signal: controller.signal,
       })
 
@@ -397,17 +398,29 @@ export default function Chat() {
       title="智能问答"
       description={
         llmEnabled
-          ? '基于 GraphRAG 检索 + LLM 流式生成；对话会保留在本会话，切页不丢失'
+          ? '标准 GraphRAG：Local（实体向量）/ Global（社区 Map-Reduce）；对话保留在本会话'
           : '检索摘要模式（配置 LLM_API_KEY 可启用大模型）'
       }
       actions={
-        <Select
-          value={currentRepoId || undefined}
-          onChange={(value) => setCurrentRepo(value)}
-          style={{ minWidth: 240 }}
-          placeholder="选择仓库"
-          options={repoList.map((r) => ({ value: r.id, label: r.fullName }))}
-        />
+        <Space>
+          <Select
+            value={searchMode}
+            onChange={(value) => setSearchMode(value)}
+            style={{ minWidth: 150 }}
+            options={[
+              { value: 'auto', label: 'Auto 路由' },
+              { value: 'local', label: 'Local Search' },
+              { value: 'global', label: 'Global Search' },
+            ]}
+          />
+          <Select
+            value={currentRepoId || undefined}
+            onChange={(value) => setCurrentRepo(value)}
+            style={{ minWidth: 240 }}
+            placeholder="选择仓库"
+            options={repoList.map((r) => ({ value: r.id, label: r.fullName }))}
+          />
+        </Space>
       }
     >
       <div className="chat-page">

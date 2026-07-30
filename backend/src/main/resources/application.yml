@@ -53,7 +53,8 @@ repopilot:
     base-url: ${CODEWIKI_BASE_URL:http://127.0.0.1:8001}
     host-repo-root: ${CODEWIKI_HOST_REPO_ROOT:./data/repos}
     container-repo-root: ${CODEWIKI_CONTAINER_REPO_ROOT:/workspace/repositories/SEProject26-7/backend/data/repos}
-    include-embeddings: ${CODEWIKI_INCLUDE_EMBEDDINGS:false}
+    # Standard GraphRAG Local Search requires entity embeddings in CodeWiki/pgvector.
+    include-embeddings: ${CODEWIKI_INCLUDE_EMBEDDINGS:true}
     connect-timeout-seconds: ${CODEWIKI_CONNECT_TIMEOUT_SECONDS:15}
     # GraphRAG / wiki can take long; keep HTTP read timeout aligned with run timeout
     read-timeout-seconds: ${CODEWIKI_READ_TIMEOUT_SECONDS:7200}

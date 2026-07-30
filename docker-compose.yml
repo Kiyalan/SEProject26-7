@@ -44,6 +44,13 @@ services:
       CODEWIKI_AST_PARSE_ISOLATE: ${CODEWIKI_AST_PARSE_ISOLATE:-1}
       # Extra gitignore-style patterns (comma-separated) applied on top of CodeWiki defaults
       CODEWIKI_EXTRA_IGNORES: ${CODEWIKI_EXTRA_IGNORES:-**/generated/,**/*.gen.ts,**/*.gen.tsx,**/*.gen.js}
+      # Standard GraphRAG: Leiden on AST entity graph (louvain|leiden)
+      CODEWIKI_COMMUNITY_ALGORITHM: ${CODEWIKI_COMMUNITY_ALGORITHM:-leiden}
+      # pgvector HNSW: auto uses halfvec when embedding dims > 2000 (e.g. Qwen3-4B 2560)
+      CODEWIKI_PGVECTOR_HALFVEC: ${CODEWIKI_PGVECTOR_HALFVEC:-auto}
+      # Container-local build/query JSONL traces under /app/storage/logs
+      CODEWIKI_OPS_TRACE: ${CODEWIKI_OPS_TRACE:-1}
+      CODEWIKI_OPS_TRACE_CONTENT_CHARS: ${CODEWIKI_OPS_TRACE_CONTENT_CHARS:-12000}
     ports:
       - "127.0.0.1:8001:8000"
     volumes:

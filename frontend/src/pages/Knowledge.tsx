@@ -58,7 +58,8 @@ const BUILD_PHASES: BuildPhase[] = [
   { key: 'git_sync', label: '同步仓库' },
   { key: 'register', label: '注册' },
   { key: 'analyze', label: '源码分析' },
-  { key: 'graphrag', label: '构建图谱' },
+  { key: 'community_naming', label: '社区摘要' },
+  { key: 'graphrag', label: '实体向量' },
   { key: 'update', label: '增量更新' },
   { key: 'indexing', label: '索引元数据' },
   { key: 'quality', label: '质量评分' },
@@ -548,7 +549,7 @@ export default function Knowledge() {
               <div className="rp-build-phases">
                 {BUILD_PHASES.filter((p) => {
                   // 全量构建不显示 update 阶段，增量构建不显示 register/analyze/graphrag
-                  if (['register', 'analyze', 'graphrag'].includes(p.key) && buildStage === 'update') return false
+                  if (['register', 'analyze', 'community_naming', 'graphrag'].includes(p.key) && buildStage === 'update') return false
                   if (p.key === 'update' && buildStage && !['update'].includes(buildStage) && buildProgress > 0 && buildStage !== '') return false
                   return true
                 }).map((phase) => {

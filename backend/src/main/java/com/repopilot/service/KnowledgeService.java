@@ -142,6 +142,15 @@ public class KnowledgeService {
                 try {
                     codeWiki.update(codeWikiId);
                     setTaskAndProgress(taskId, progressKey, 12, TOTAL, "update", "增量更新完成");
+                    setTaskAndProgress(taskId, progressKey, 15, TOTAL, "graphrag",
+                            "增量后刷新实体 Embedding（标准 GraphRAG）");
+                    try {
+                        codeWiki.buildStandardGraph(codeWikiId);
+                        setTaskAndProgress(taskId, progressKey, 17, TOTAL, "graphrag", "实体向量刷新完成");
+                    } catch (Exception embedEx) {
+                        setTaskAndProgress(taskId, progressKey, 17, TOTAL, "graphrag",
+                                "实体向量刷新跳过: " + rootMessage(embedEx));
+                    }
                 } catch (CodeWikiException ex) {
                     if (!isMissingCodeWikiRepo(ex) && !ex.retryable()) {
                         throw ex;
@@ -413,16 +422,105 @@ public class KnowledgeService {
     }
 
     /**
-     * Chat retrieval grounded in GraphRAG structure: graph explore text and community
-     * summaries. CodeWiki /ask is intentionally skipped here — it runs a second LLM and
-     * blocked the chat SSE for minutes with no UI feedback.
+     * Standard GraphRAG Local Search: entity vector retrieval → graph expand →
+     * community reports + relationships + code windows.
+     * Falls back to explore+communities if the standard endpoint is unavailable.
      */
     public List<Map<String, Object>> graphRagContexts(String repoId, String ownerLogin, String question, int limit) {
+        return localSearchContexts(repoId, ownerLogin, question, limit);
+    }
+
+    public List<Map<String, Object>> localSearchContexts(String repoId, String ownerLogin, String question, int limit) {
         RepoIndex index = requireReadyIndex(repoId);
         String codeWikiId = index.getCodeWikiRepoId();
-        List<Map<String, Object>> contexts = new ArrayList<>();
-        int bound = Math.min(Math.max(limit, 4), 24);
+        int bound = Math.min(Math.max(limit, 4), 48);
+        try {
+            JsonNode response = codeWiki.localSearch(codeWikiId, question, 2);
+            List<Map<String, Object>> contexts = contextsFromSearchResponse(response);
+            if (!contexts.isEmpty()) {
+                // Local search returns entity docs first, then communities/relationships,
+                // then code_window. Blind subList(0, N) drops the source code windows.
+                return prioritizeLocalContexts(contexts, bound);
+            }
+        } catch (Exception ex) {
+            // Fall through to legacy explore path.
+        }
+        return legacyExploreContexts(codeWikiId, question, bound);
+    }
 
+    /**
+     * Keep code windows when truncating GraphRAG local contexts.
+     * Order: code_window → entity → relationship → community_report → other.
+     */
+    static List<Map<String, Object>> prioritizeLocalContexts(List<Map<String, Object>> contexts, int bound) {
+        if (contexts == null || contexts.isEmpty() || contexts.size() <= bound) {
+            return contexts == null ? List.of() : contexts;
+        }
+        List<String> priority = List.of(
+                "code_window", "relationship", "entity", "community_report", "global_map");
+        List<Map<String, Object>> selected = new ArrayList<>();
+        for (String type : priority) {
+            for (Map<String, Object> row : contexts) {
+                if (selected.size() >= bound) {
+                    return selected;
+                }
+                if (type.equals(String.valueOf(row.getOrDefault("sourceType", ""))) && !selected.contains(row)) {
+                    selected.add(row);
+                }
+            }
+        }
+        for (Map<String, Object> row : contexts) {
+            if (selected.size() >= bound) {
+                break;
+            }
+            if (!selected.contains(row)) {
+                selected.add(row);
+            }
+        }
+        return selected;
+    }
+
+    /**
+     * Standard GraphRAG Global Search (DCS + map-reduce). Returns contexts plus
+     * a precomputed answer in the result map under key {@code answer}.
+     */
+    public Map<String, Object> globalSearchResult(String repoId, String ownerLogin, String question) {
+        RepoIndex index = requireReadyIndex(repoId);
+        String codeWikiId = index.getCodeWikiRepoId();
+        JsonNode response = codeWiki.globalSearch(codeWikiId, question, 0, true);
+        List<Map<String, Object>> contexts = contextsFromSearchResponse(response);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("answer", response.path("answer").asText(""));
+        result.put("contexts", contexts);
+        result.put("mode", "global");
+        result.put("selectedCommunityIds", response.path("selected_community_ids"));
+        result.put("prunedCommunityIds", response.path("pruned_community_ids"));
+        return result;
+    }
+
+    private List<Map<String, Object>> contextsFromSearchResponse(JsonNode response) {
+        List<Map<String, Object>> contexts = new ArrayList<>();
+        if (response == null) return contexts;
+        JsonNode rows = response.path("contexts");
+        if (!rows.isArray()) return contexts;
+        for (JsonNode item : rows) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("file", item.path("file").asText("knowledge/context"));
+            row.put("line", item.path("line").asInt(1));
+            row.put("endLine", item.path("endLine").asInt(item.path("line").asInt(1)));
+            if (item.hasNonNull("symbolName")) row.put("symbolName", item.path("symbolName").asText());
+            if (item.hasNonNull("symbolKind")) row.put("symbolKind", item.path("symbolKind").asText());
+            row.put("content", item.path("content").asText(""));
+            row.put("score", item.path("score").asDouble(0));
+            row.put("retrievalType", item.path("retrievalType").asText("graph"));
+            row.put("sourceType", item.path("sourceType").asText("code"));
+            contexts.add(row);
+        }
+        return contexts;
+    }
+
+    private List<Map<String, Object>> legacyExploreContexts(String codeWikiId, String question, int bound) {
+        List<Map<String, Object>> contexts = new ArrayList<>();
         try {
             JsonNode explore = codeWiki.explore(codeWikiId, mapper.valueToTree(Map.of(
                     "query", question,
@@ -456,15 +554,11 @@ public class KnowledgeService {
             notice.put("score", 10);
             contexts.add(notice);
         }
-
         try {
-            // Prefer communities + explore. Skip CodeWiki /ask by default: it runs a second LLM
-            // and often blocks the chat UI for minutes before the first SSE event.
             contexts.addAll(communityContexts(codeWikiId, question, 8));
         } catch (Exception ignored) {
             // optional
         }
-
         if (contexts.isEmpty()) {
             throw new IllegalStateException("GraphRAG 检索未返回可用图上下文，请确认知识库已构建且 CodeWiki 健康");
         }
@@ -783,10 +877,67 @@ public class KnowledgeService {
             }
             throw ex;
         }
+        setTaskAndProgress(taskId, progressKey, 14, total, "community_naming",
+                "等待 Leiden 社区 LLM 命名/摘要（analyze 后台任务）");
+        ensureCommunityReports(taskId, progressKey, total, codeWikiId);
+
         setTaskAndProgress(taskId, progressKey, 15, total, "graphrag",
-                "正在构建 GraphRAG 知识图谱（默认关闭 embedding）");
-        codeWiki.buildGraph(codeWikiId);
-        setTaskAndProgress(taskId, progressKey, 17, total, "graphrag", "GraphRAG 知识图谱构建完成");
+                "正在构建标准 GraphRAG（实体描述 Embedding，供 Local Search）");
+        try {
+            codeWiki.buildStandardGraph(codeWikiId);
+            setTaskAndProgress(taskId, progressKey, 17, total, "graphrag", "标准 GraphRAG（实体向量）构建完成");
+        } catch (Exception ex) {
+            String msg = rootMessage(ex);
+            setTaskAndProgress(taskId, progressKey, 16, total, "graphrag",
+                    "标准 GraphRAG 失败，回退无向量索引: " + msg);
+            try {
+                // Avoid re-triggering the same embedding 403/ToS failure.
+                codeWiki.buildGraph(codeWikiId, false);
+                setTaskAndProgress(taskId, progressKey, 17, total, "graphrag",
+                        "已回退构建普通 chunks（无 embedding）。请修正 CODEWIKI_LLM__PROFILES__EMBEDDING__* 后重建");
+            } catch (Exception fallbackEx) {
+                throw new IllegalStateException(
+                        "GraphRAG 构建失败。请检查仓库根目录 .env 中 CODEWIKI_LLM__*（OpenRouter 模型须带 "
+                                + "openrouter/ 前缀，见 .env.example），然后 docker compose up -d codewiki。"
+                                + "原始错误: " + msg,
+                        fallbackEx);
+            }
+        }
+    }
+
+    /** Ensure communities have LLM names/summaries; fall back to POST /communities/name. */
+    private void ensureCommunityReports(String taskId, String progressKey, int total, String codeWikiId) {
+        try {
+            JsonNode rows = codeWiki.communities(codeWikiId);
+            JsonNode list = rows != null && rows.isArray() ? rows
+                    : (rows != null ? rows.path("items") : null);
+            if (list == null || !list.isArray()) {
+                list = rows != null ? rows.path("communities") : null;
+            }
+            int withSummary = 0;
+            int totalCommunities = 0;
+            if (list != null && list.isArray()) {
+                totalCommunities = list.size();
+                for (JsonNode community : list) {
+                    String summary = community.path("summary").asText("");
+                    if (summary != null && !summary.isBlank()) {
+                        withSummary++;
+                    }
+                }
+            }
+            if (totalCommunities > 0 && withSummary * 2 >= totalCommunities) {
+                setTaskAndProgress(taskId, progressKey, 14, total, "community_naming",
+                        "社区报告已就绪（" + withSummary + "/" + totalCommunities + "）");
+                return;
+            }
+            setTaskAndProgress(taskId, progressKey, 14, total, "community_naming",
+                    "正在调用 LLM 生成社区命名与摘要");
+            codeWiki.nameCommunities(codeWikiId, 40);
+            setTaskAndProgress(taskId, progressKey, 14, total, "community_naming", "社区报告生成完成");
+        } catch (Exception ex) {
+            setTaskAndProgress(taskId, progressKey, 14, total, "community_naming",
+                    "社区报告生成跳过/失败: " + rootMessage(ex));
+        }
     }
 
     private static boolean isWorkerLostAfterRestart(Throwable ex) {
@@ -853,7 +1004,7 @@ public class KnowledgeService {
         }
     }
 
-    /** If graph has nodes but no chunks, run GraphRAG build so Q&A retrieve can work. */
+    /** If graph has nodes but no chunks/entity embeddings, run standard GraphRAG build. */
     private void ensureGraphChunks(String taskId, String progressKey, int total, String codeWikiId) {
         try {
             JsonNode status = codeWiki.graphStatus(codeWikiId);
@@ -863,8 +1014,12 @@ public class KnowledgeService {
                 return;
             }
             setTaskAndProgress(taskId, progressKey, 15, total, "graphrag",
-                    "图谱有节点但无检索片段，正在补建 GraphRAG");
-            codeWiki.buildGraph(codeWikiId);
+                    "图谱有节点但无实体检索片段，正在补建标准 GraphRAG");
+            try {
+                codeWiki.buildStandardGraph(codeWikiId);
+            } catch (Exception standardEx) {
+                codeWiki.buildGraph(codeWikiId);
+            }
             setTaskAndProgress(taskId, progressKey, 17, total, "graphrag", "GraphRAG 补建完成");
         } catch (Exception ex) {
             // Keep going — projectIndex will still persist whatever counts are available.

@@ -80,18 +80,19 @@ class KnowledgeQueryServiceTest {
     void routesCodeQuestionsToGraphRagContexts() {
         KnowledgeService knowledge = mock(KnowledgeService.class);
         PortfolioService portfolio = mock(PortfolioService.class);
-        when(knowledge.graphRagContexts(eq("repo"), eq("owner"), anyString(), anyInt()))
-                .thenReturn(List.of(context("codewiki/ask", "graph_rag_answer")));
+        when(knowledge.localSearchContexts(eq("repo"), eq("owner"), anyString(), anyInt()))
+                .thenReturn(List.of(context("codewiki/entity/Auth", "entity")));
         KnowledgeQueryService service = new KnowledgeQueryService(knowledge, portfolio);
 
         KnowledgeQueryService.QueryResult result =
                 service.retrieve("repo", "JWT Token 校验是怎么实现的？", "owner");
 
         assertThat(result.intent()).contains("code");
+        assertThat(result.searchMode()).isEqualTo("local");
         assertThat(result.contexts())
                 .extracting(row -> row.get("sourceType"))
-                .contains("graph_rag_answer");
-        verify(knowledge).graphRagContexts(eq("repo"), eq("owner"), anyString(), anyInt());
+                .contains("entity");
+        verify(knowledge).localSearchContexts(eq("repo"), eq("owner"), anyString(), anyInt());
     }
 
     @Test
@@ -100,8 +101,8 @@ class KnowledgeQueryServiceTest {
         PortfolioService portfolio = mock(PortfolioService.class);
         when(knowledge.repositoryOverviewContext(eq("repo"), eq("owner")))
                 .thenReturn(context("knowledge/repository-overview", "repository_overview"));
-        when(knowledge.graphRagContexts(anyString(), anyString(), anyString(), anyInt()))
-                .thenReturn(List.of(context("codewiki/graph-explore", "graph_explore")));
+        when(knowledge.localSearchContexts(anyString(), anyString(), anyString(), anyInt()))
+                .thenReturn(List.of(context("codewiki/entity/Api", "entity")));
         when(knowledge.retrieveChunksByPathHints(anyString(), anyString(), anyString(), anyList(), anyInt()))
                 .thenReturn(List.of(context("backend/run.ps1", "code")));
         KnowledgeQueryService service = new KnowledgeQueryService(knowledge, portfolio);
@@ -110,9 +111,10 @@ class KnowledgeQueryServiceTest {
                 service.retrieve("repo", "项目主要目的是什么？当前接口有哪些，如何部署？", "owner");
 
         assertThat(result.intent()).contains("overview", "api", "deployment");
+        assertThat(result.searchMode()).isEqualTo("local");
         assertThat(result.contexts())
                 .extracting(row -> row.get("sourceType"))
-                .contains("repository_overview", "graph_explore");
+                .contains("repository_overview", "entity");
     }
 
     private static Map<String, Object> context(String file, String sourceType) {
