@@ -105,7 +105,16 @@ npm run dev
 也可用根目录一键脚本（需已安装 Docker / JDK 21+ / Node；后端通过 `backend/mvnw` 自动下载 Maven）：
 
 ```powershell
+# Windows
 .\start-dev.ps1
+```
+
+```bash
+# Linux
+chmod +x start-dev.sh backend/run.sh backend/mvnw
+./start-dev.sh
+# 无 GUI 时后端/前端在后台跑，日志：logs/backend.log、logs/frontend.log
+# 确认后端：curl -sI http://127.0.0.1:8000/auth/github   # 期望 302
 ```
 
 ## 架构简述
