@@ -15,7 +15,7 @@ import PortfolioPanel from '../components/PortfolioPanel'
 import { useRepoContext } from '../context/RepoContext'
 import {
   buildKnowledge,
-  resetKnowledge,
+ // resetKnowledge,
   compareKnowledgeCommits,
   exportRepoFaq,
   fetchKnowledge,
@@ -338,34 +338,21 @@ export default function Knowledge() {
       onOk: async () => {
         setError(null)
         try {
-          const { data } = await resetKnowledge({ path: { repoId: currentRepoId } })
-          const payload = data as {
-            message?: string
-            codewikiDeleted?: boolean
-            codewikiWarning?: string
-          }
-          if (payload.codewikiWarning) {
-            message.warning(payload.message || '本地已重置，CodeWiki 清理不完整')
-          } else {
-            message.success(payload.message || '知识库已重置')
-          }
-          setOverview(null)
-          setGraphStatus(null)
-          setWiki(null)
-          setSelectedWikiPageId('')
-          setFaq(null)
-          setSelectedFaqId('')
-          setBuildTasks([])
-          setTaskErrors([])
-          await loadOverview(currentRepoId)
-          await loadTasks(currentRepoId)
-          await loadFaq(currentRepoId)
-          fetchKnowledgeGraphStatus({ path: { repoId: currentRepoId } })
-            .then(({ data: status }) => setGraphStatus(status))
-            .catch(() => setGraphStatus(null))
-          fetchKnowledgeWiki({ path: { repoId: currentRepoId }, query: { language: 'zh' } })
-            .then(({ data: current }) => setWiki(current))
-            .catch(() => setWiki(null))
+    // 接口暂未同步，暂时屏蔽调用
+    message.info('知识库重置功能暂未开放')
+    // const { data } = await resetKnowledge({ path: { repoId: cur...
+    // const payload = data as {
+    //   message?: string
+    //   codewikiDeleted?: boolean
+    //   codewikiWarning?: string
+    // }
+    // if (payload.codewikiWarning) {
+    //   message.warning(payload.message || '本地已重置，CodeWiki...
+    // } else {
+    //   message.success(payload.message || '知识库已重置')
+    // }
+    // setOverview(null)
+    // setGraphStatus(null)
         } catch (err) {
           setError(err instanceof Error ? err.message : '重置失败')
         }
