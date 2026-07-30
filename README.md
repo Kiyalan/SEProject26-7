@@ -72,7 +72,7 @@ cd backend
 .\run.ps1
 ```
 
-`run.ps1` 会：结束占用 8000 的旧 RepoPilot 进程 → 检查 CodeWiki 健康 → `mvn package` → 启动最新 JAR。
+`run.ps1` 会：结束占用 8000 的旧 RepoPilot 进程 → 检查 CodeWiki 健康 → `.\mvnw.cmd package`（Maven Wrapper，无需本机安装 Maven）→ 启动最新 JAR。
 
 ### 3. 启动前端
 
@@ -84,7 +84,7 @@ npm run dev
 
 打开 <http://localhost:5173>。
 
-也可用根目录一键脚本（需已安装 Docker / Java / Node）：
+也可用根目录一键脚本（需已安装 Docker / JDK 21+ / Node；后端通过 `backend/mvnw` 自动下载 Maven）：
 
 ```powershell
 .\start-dev.ps1
@@ -93,7 +93,7 @@ npm run dev
 ## 架构简述
 
 ```text
-浏览器 → Vite 前端 → Spring Boot(:8000)
+浏览器 → Vite 前端(:5173) → Spring Boot(:8000)
                          ├─ GitHub OAuth / API
                          ├─ H2：任务、质量、Issue 缓存、仓库投影
                          └─ CodeWiki(:8001) + PostgreSQL/pgvector
