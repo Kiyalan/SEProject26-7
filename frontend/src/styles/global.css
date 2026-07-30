@@ -319,3 +319,69 @@ body {
 .knowledge-page .ant-btn-primary:hover {
   box-shadow: 0 6px 16px rgba(22, 93, 255, 0.45);
 }
+
+/* 知识库仍使用 gh-box 的区块：外观对齐 ant Card */
+.knowledge-page,
+.chat-page,
+.issue-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.knowledge-page .gh-box,
+.chat-page .gh-box,
+.issue-page .gh-box {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  margin-bottom: 0 !important;
+  overflow: hidden;
+}
+
+.knowledge-page .gh-box-header,
+.chat-page .gh-box-header,
+.issue-page .gh-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-weight: 700;
+  font-size: 15px;
+  color: #111827;
+  padding: 16px 24px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #ffffff;
+}
+
+.knowledge-page .gh-box-body,
+.chat-page .gh-box-body,
+.issue-page .gh-box-body {
+  padding: 22px 24px;
+}
+
+.knowledge-page .gh-grid-2,
+.chat-page .gh-grid-2,
+.issue-page .gh-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-bottom: 0 !important;
+}
+
+@media (max-width: 960px) {
+  .knowledge-page .gh-grid-2,
+  .chat-page .gh-grid-2,
+  .issue-page .gh-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chat-page .ant-btn,
+.issue-page .ant-btn,
+.knowledge-page .gh-btn {
+  border-radius: 8px;
+  font-weight: 600;
+}

@@ -54,8 +54,8 @@ public class CodeWikiClient {
     }
 
     public RunResponse analyze(String repoId) {
-        // Always disable LLM community naming during build — it is slow and not required for GraphRAG.
-        return post(repo(repoId) + "/analyze", Map.of("name_communities", false),
+        // Standard GraphRAG: LLM names/summarizes Leiden communities on the AST entity graph.
+        return post(repo(repoId) + "/analyze", Map.of("name_communities", true),
                 RunResponse.class, "analyze");
     }
 
@@ -236,14 +236,68 @@ public class CodeWikiClient {
     }
 
     public JsonNode buildGraph(String repoId) {
+        return buildGraph(repoId, properties.includeEmbeddings());
+    }
+
+    public JsonNode buildGraph(String repoId, boolean includeEmbeddings) {
         return post(repo(repoId) + "/graphrag/build",
-                new GraphBuildRequest(properties.includeEmbeddings()), JsonNode.class, "graphrag_build");
+                new GraphBuildRequest(includeEmbeddings), JsonNode.class, "graphrag_build");
+    }
+
+    /**
+     * Standard GraphRAG index: entity description embeddings on the AST graph
+     * (not pure source-chunk retrieval). Forces embeddings when configured.
+     */
+    public JsonNode buildStandardGraph(String repoId) {
+        return post(repo(repoId) + "/graphrag/build-standard",
+                Map.of("include_embeddings", true, "max_entities", 4000),
+                JsonNode.class, "graphrag_build_standard");
+    }
+
+    public JsonNode nameCommunities(String repoId, int maxCommunities) {
+        return post(repo(repoId) + "/communities/name",
+                Map.of("max_communities", Math.max(1, maxCommunities)),
+                JsonNode.class, "communities_name");
+    }
+
+    public JsonNode localSearch(String repoId, String query, int maxHops) {
+        return post(repo(repoId) + "/graphrag/local-search",
+                Map.of("query", query, "max_hops", maxHops, "top_k", 20),
+                JsonNode.class, "graphrag_local_search");
+    }
+
+    public JsonNode globalSearch(String repoId, String query, int level, boolean dynamicSelection) {
+        return post(repo(repoId) + "/graphrag/global-search",
+                Map.of(
+                        "query", query,
+                        "level", Math.max(0, level),
+                        "map_batch_size", 4,
+                        "dynamic_selection", dynamicSelection,
+                        "max_map_batches", 8
+                ),
+                JsonNode.class, "graphrag_global_search");
     }
 
     public JsonNode retrieve(String repoId, String query, int maxHops) {
         return post(repo(repoId) + "/graphrag/retrieve",
                 new RetrieveRequest(query, maxHops, properties.includeEmbeddings()),
                 JsonNode.class, "graphrag_retrieve");
+    }
+
+    /** Full GraphRAG Q&A (communities + graph + sources). Requires CodeWiki LLM for synthesis. */
+    public JsonNode ask(String repoId, String question, int maxHops) {
+        return post(repo(repoId) + "/ask",
+                new AskRequest(question, "graph_rag", maxHops, true, true),
+                JsonNode.class, "ask");
+    }
+
+    public JsonNode communities(String repoId) {
+        return get(repo(repoId) + "/communities", JsonNode.class, "communities");
+    }
+
+    /** Full AST/GraphRAG graph (nodes + edges + communities) from CodeWiki. */
+    public JsonNode fullGraph(String repoId) {
+        return get(repo(repoId) + "/graph", JsonNode.class, "graph_full");
     }
 
     public JsonNode graphStatus(String repoId) {
@@ -450,4 +504,5 @@ public class CodeWikiClient {
     public record UpdateRequest(boolean refresh_chunks, boolean name_communities, boolean regenerate_wiki) {}
     public record GraphBuildRequest(boolean include_embeddings) {}
     public record RetrieveRequest(String query, int max_hops, boolean include_embeddings) {}
+    public record AskRequest(String question, String mode, int max_hops, boolean include_sources, boolean include_graph) {}
 }

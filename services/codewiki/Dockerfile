@@ -20,9 +20,10 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --upgrade pip \
-    && pip install --requirement requirements.txt
+    && pip install --requirement requirements.txt \
+    && python -c "from importlib.metadata import version; v=version('tree-sitter'); assert v.startswith('0.25.'), v"
 
-COPY entrypoint.py analyze_worker.py parse_file_worker.py codewiki_patches.py .
+COPY entrypoint.py analyze_worker.py parse_file_worker.py codewiki_patches.py graphrag_standard.py ops_trace.py .
 
 RUN mkdir -p /app/storage /workspace/repositories
 

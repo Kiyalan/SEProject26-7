@@ -191,6 +191,53 @@ public class GitRepositoryService {
                     break;
                 }
             }
+            // Prepend a ranked digest so the LLM cannot invent ahead/behind numbers.
+            if (!result.isEmpty()) {
+                List<Map<String, Object>> ranked = new ArrayList<>(result);
+                ranked.sort((a, b) -> {
+                    int aa = extractInt(String.valueOf(a.get("content")), "aheadOfDefault: ");
+                    int ba = extractInt(String.valueOf(b.get("content")), "aheadOfDefault: ");
+                    if (aa != ba) return Integer.compare(ba, aa);
+                    int ab = extractInt(String.valueOf(a.get("content")), "behindDefault: ");
+                    int bb = extractInt(String.valueOf(b.get("content")), "behindDefault: ");
+                    return Integer.compare(ab, bb);
+                });
+                StringBuilder digest = new StringBuilder();
+                digest.append("分支相对 origin/").append(baseName).append(" 的真实 git 统计（勿改数字）\n");
+                digest.append("说明: ahead=相对默认分支独有提交数；behind=默认分支有而本分支没有的提交数。\n");
+                digest.append("littleUniqueContent=true 仅表示 ahead=0，不是「业务上没用」；")
+                        .append("也不表示分支代码内容已被知识库索引。\n");
+                digest.append("CodeWiki/GraphRAG 只索引默认分支工作区；下列数字来自本地 git fetch 后的 refs，")
+                        .append("不是图谱检索结果。\n");
+                digest.append("按 ahead 降序:\n");
+                int rank = 0;
+                for (Map<String, Object> row : ranked) {
+                    String content = String.valueOf(row.get("content"));
+                    String name = String.valueOf(row.get("symbolName"));
+                    int ahead = extractInt(content, "aheadOfDefault: ");
+                    int behind = extractInt(content, "behindDefault: ");
+                    String relation = extractField(content, "relation: ");
+                    digest.append(++rank).append(". ").append(name)
+                            .append(" ahead=").append(ahead)
+                            .append(" behind=").append(behind)
+                            .append(" relation=").append(relation)
+                            .append('\n');
+                }
+                Map<String, Object> summary = new LinkedHashMap<>();
+                summary.put("file", "git/branches/_summary");
+                summary.put("line", 0);
+                summary.put("endLine", 0);
+                summary.put("symbolName", "branch_rank_summary");
+                summary.put("symbolKind", "summary");
+                summary.put("score", 300);
+                summary.put("retrievalType", "structured");
+                summary.put("sourceType", "branch_list");
+                summary.put("content", digest.toString());
+                List<Map<String, Object>> withSummary = new ArrayList<>();
+                withSummary.add(summary);
+                withSummary.addAll(result);
+                return withSummary;
+            }
             return result;
         } catch (Exception ex) {
             throw new IllegalStateException("读取分支列表失败: " + rootMessage(ex), ex);
@@ -210,6 +257,25 @@ public class GitRepositoryService {
             }
         }
         return count;
+    }
+
+    private static int extractInt(String content, String key) {
+        String value = extractField(content, key);
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private static String extractField(String content, String key) {
+        if (content == null || key == null) return "";
+        int start = content.indexOf(key);
+        if (start < 0) return "";
+        start += key.length();
+        int end = content.indexOf('\n', start);
+        if (end < 0) end = content.length();
+        return content.substring(start, end).trim();
     }
 
     public List<Map<String, Object>> history(String repoId, String ownerLogin, int limit) {

@@ -233,6 +233,22 @@ public class KnowledgeController {
         return knowledgeService.graphStatus(repoId);
     }
 
+    @GetMapping("/communities")
+    Map<String, Object> communities(@PathVariable String repoId,
+                                    @RequestHeader(value = "Authorization", required = false) String authorization) {
+        authorize(repoId, authorization);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
+        return Map.of("items", knowledgeService.listCommunities(repoId, ownerLogin));
+    }
+
+    @GetMapping("/graph")
+    Map<String, Object> fullGraph(@PathVariable String repoId,
+                                  @RequestHeader(value = "Authorization", required = false) String authorization) {
+        authorize(repoId, authorization);
+        String ownerLogin = AuthSupport.requireUsername(authorization);
+        return knowledgeService.fullGraph(repoId, ownerLogin);
+    }
+
     @GetMapping("/graph/search")
     Map<String, Object> graphSearchQuery(@PathVariable String repoId, @RequestParam Map<String, String> query,
                                          @RequestHeader(value = "Authorization", required = false) String authorization) {
