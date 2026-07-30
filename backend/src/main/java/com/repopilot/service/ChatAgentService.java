@@ -250,11 +250,10 @@ public class ChatAgentService {
     }
 
     private static String agentSystemPrompt(String intent) {
-        return "你是仓库助手 RepoPilot 的补充检索代理。主证据已来自 GraphRAG retrieve（源码片段）与少量社区摘要。"
-                + "仅在证据不足或用户问调用关系/影响范围时使用工具。"
-                + "优先 retrieve_code；需要完整方法签名时 read_file 只读 1-3 个目标文件，禁止全量 list_files。"
-                + "调用关系用 graph_callers / graph_callees / graph_impact。"
-                + "不要编造文件或方法。";
+        return "你是仓库助手 RepoPilot 的补充检索代理。主证据来自 GraphRAG retrieve 片段，以及社区摘要附带的 GRAPH_FILES/GRAPH_SYMBOLS（来自图谱 node_ids，不是随便扫盘）。"
+                + "文件清单应来自已注入的图谱文件/社区成员，不要假设需要全量扫仓库。"
+                + "仅在证据不足或用户问调用关系时使用工具：retrieve_code、read_file（1-3个目标文件）、graph_callers/graph_callees/graph_impact、get_community。"
+                + "禁止编造文件或方法。";
     }
 
     private static String agentUserPrompt(String question, List<Map<String, Object>> contexts,
@@ -269,7 +268,7 @@ public class ChatAgentService {
             }
             sb.append('\n');
         }
-        sb.append("已有 GraphRAG/社区资料：\n");
+        sb.append("已有 GraphRAG/社区(含图谱成员)资料：\n");
         int i = 1;
         for (Map<String, Object> c : contexts) {
             if (i > 10) {
@@ -280,8 +279,8 @@ public class ChatAgentService {
             if (content.isBlank()) {
                 continue;
             }
-            if (content.length() > 1500) {
-                content = content.substring(0, 1500) + "\n…(truncated)";
+            if (content.length() > 2000) {
+                content = content.substring(0, 2000) + "\n…(truncated)";
             }
             sb.append(i++).append(". ").append(label).append('\n').append(content).append("\n\n");
         }
@@ -293,20 +292,20 @@ public class ChatAgentService {
         ArrayNode tools = mapper.createArrayNode();
         tools.add(tool("retrieve_code", "GraphRAG 再检索相关源码片段（首选）",
                 Map.of("query", Map.of("type", "string", "description", "检索查询"))));
-        tools.add(tool("get_community", "获取某个 GraphRAG 社区摘要（定位模块，不代替源码）",
+        tools.add(tool("get_community", "获取社区摘要，并含图谱成员 FILES/SYMBOLS",
                 Map.of("name_or_id", Map.of("type", "string", "description", "社区名称或 id"))));
-        tools.add(tool("list_communities", "列出社区名称与摘要预览", Map.of()));
-        tools.add(tool("read_file", "读取 1 个目标源文件（仅当片段不够看签名/实现时）",
+        tools.add(tool("list_communities", "列出社区（含图谱成员预览）", Map.of()));
+        tools.add(tool("read_file", "读取 1 个目标源文件（仅当片段/符号列表不够）",
                 Map.of("path", Map.of("type", "string", "description", "相对仓库根的文件路径"))));
-        tools.add(tool("list_symbols", "按文件或关键词列出符号",
+        tools.add(tool("list_symbols", "按文件或关键词从图谱列出符号",
                 Map.of("file_or_query", Map.of("type", "string", "description", "文件路径或符号关键词"))));
         tools.add(tool("explore_graph", "图探索文本",
                 Map.of("query", Map.of("type", "string", "description", "探索查询"))));
-        tools.add(tool("graph_callers", "查询谁调用了该符号（节点依赖）",
+        tools.add(tool("graph_callers", "查询谁调用了该符号（图谱依赖，可选路径）",
                 Map.of("symbol", Map.of("type", "string", "description", "符号名或查询"))));
-        tools.add(tool("graph_callees", "查询该符号调用了谁（节点依赖）",
+        tools.add(tool("graph_callees", "查询该符号调用了谁（图谱依赖，可选路径）",
                 Map.of("symbol", Map.of("type", "string", "description", "符号名或查询"))));
-        tools.add(tool("graph_impact", "查询符号变更影响范围（节点依赖）",
+        tools.add(tool("graph_impact", "查询符号变更影响范围（图谱依赖，可选路径）",
                 Map.of("symbol", Map.of("type", "string", "description", "符号名或查询"))));
         return tools;
     }

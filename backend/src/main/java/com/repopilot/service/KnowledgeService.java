@@ -1058,54 +1058,268 @@ public class KnowledgeService {
     }
 
     private List<Map<String, Object>> communityContexts(String codeWikiId, String question, int limit) {
-        JsonNode rows = codeWiki.communities(codeWikiId);
-        if (rows == null) return List.of();
-        JsonNode list = rows.isArray() ? rows : rows.path("items");
-        if (!list.isArray()) list = rows.path("communities");
-        if (!list.isArray()) return List.of();
+        // Prefer full graph communities: they include node_ids (files+symbols).
+        // GET /communities omits membership and leaves only a thin LLM summary.
+        JsonNode graph;
+        try {
+            graph = codeWiki.fullGraph(codeWikiId);
+        } catch (Exception ex) {
+            graph = null;
+        }
+        JsonNode list = graph != null && graph.path("communities").isArray()
+                ? graph.path("communities") : null;
+        if (list == null || !list.isArray() || list.isEmpty()) {
+            JsonNode rows = codeWiki.communities(codeWikiId);
+            if (rows == null) return List.of();
+            list = rows.isArray() ? rows : rows.path("items");
+            if (!list.isArray()) list = rows.path("communities");
+            if (!list.isArray()) return List.of();
+        }
 
-        Map<String, List<String>> symbolsByFile = graphSymbolsByFile(codeWikiId);
+        Map<String, JsonNode> nodesById = new LinkedHashMap<>();
+        if (graph != null && graph.path("nodes").isArray()) {
+            for (JsonNode node : graph.path("nodes")) {
+                String id = node.path("id").asText("");
+                if (!id.isBlank()) {
+                    nodesById.put(id, node);
+                }
+            }
+        }
 
         String lower = question == null ? "" : question.toLowerCase();
         List<Map<String, Object>> scored = new ArrayList<>();
         for (JsonNode community : list) {
+            String id = firstText(community, "id");
             String name = firstText(community, "name", "title", "id");
             String summary = firstText(community, "summary", "description", "content");
             if (name.isBlank() && summary.isBlank()) continue;
-            String blob = (name + "\n" + summary).toLowerCase();
-            int score = lower.isBlank() ? 55 : 30;
+
+            List<String> memberFiles = new ArrayList<>();
+            List<String> memberSymbols = new ArrayList<>();
+            JsonNode nodeIds = community.path("node_ids");
+            if (nodeIds.isArray()) {
+                for (JsonNode idNode : nodeIds) {
+                    String nodeId = idNode.asText("");
+                    JsonNode node = nodesById.get(nodeId);
+                    if (node != null) {
+                        String type = node.path("type").asText("");
+                        String file = normalizeRepoPath(node.path("file_path").asText(""));
+                        String sym = node.path("name").asText("");
+                        if (("file".equals(type) || "config".equals(type) || "directory".equals(type))
+                                && !file.isBlank() && !memberFiles.contains(file)) {
+                            memberFiles.add(file);
+                        } else if (("class".equals(type) || "function".equals(type)
+                                || "method".equals(type) || "interface".equals(type))
+                                && !sym.isBlank()) {
+                            String label = file.isBlank() ? sym : (file + "::" + sym);
+                            if (!memberSymbols.contains(label)) {
+                                memberSymbols.add(label);
+                            }
+                            if (!file.isBlank() && !memberFiles.contains(file)) {
+                                memberFiles.add(file);
+                            }
+                        } else if (!file.isBlank() && !memberFiles.contains(file)) {
+                            memberFiles.add(file);
+                        }
+                    } else if (nodeId.contains(":file:")) {
+                        String file = normalizeRepoPath(nodeId.substring(nodeId.indexOf(":file:") + 6));
+                        if (!file.isBlank() && !memberFiles.contains(file)) {
+                            memberFiles.add(file);
+                        }
+                    } else if (nodeId.contains(":symbol:")) {
+                        String rest = nodeId.substring(nodeId.indexOf(":symbol:") + 8);
+                        if (!memberSymbols.contains(rest)) {
+                            memberSymbols.add(rest);
+                        }
+                        int sep = rest.indexOf("::");
+                        if (sep > 0) {
+                            String file = normalizeRepoPath(rest.substring(0, sep));
+                            if (!file.isBlank() && !memberFiles.contains(file)) {
+                                memberFiles.add(file);
+                            }
+                        }
+                    }
+                }
+            }
+            // Fallback: paths mentioned in summary text only
+            if (memberFiles.isEmpty()) {
+                memberFiles.addAll(extractPathsFromText(name + "\n" + summary));
+            }
+
+            String blob = (name + "\n" + summary + "\n" + String.join(" ", memberFiles)
+                    + "\n" + String.join(" ", memberSymbols)).toLowerCase();
+            int score = lower.isBlank() ? 55 : 25;
             if (!lower.isBlank()) {
                 for (String token : lower.split("[\\s\\p{Punct}]+")) {
                     if (token.length() >= 3 && blob.contains(token)) score += 10;
                 }
             }
-            List<String> memberFiles = extractPathsFromText(name + "\n" + summary);
+
             StringBuilder enriched = new StringBuilder();
-            enriched.append("community: ").append(name).append('\n').append(summary);
+            enriched.append("community: ").append(name);
+            if (!id.isBlank()) {
+                enriched.append(" (").append(id).append(')');
+            }
+            enriched.append('\n');
+            if (!summary.isBlank()) {
+                enriched.append(summary).append('\n');
+            }
+            // Graph membership — this is what makes a thin summary Q&A-usable
             if (!memberFiles.isEmpty()) {
-                enriched.append("\n\nFILES:\n");
+                enriched.append("\nGRAPH_FILES (").append(memberFiles.size()).append("):\n");
+                int n = 0;
                 for (String file : memberFiles) {
-                    enriched.append("- ").append(file);
-                    List<String> symbols = symbolsByFile.getOrDefault(file, List.of());
-                    if (!symbols.isEmpty()) {
-                        enriched.append(" :: ").append(String.join(", ",
-                                symbols.stream().limit(24).toList()));
+                    if (n++ >= 40) {
+                        enriched.append("- …(+").append(memberFiles.size() - 40).append(" more)\n");
+                        break;
                     }
-                    enriched.append('\n');
+                    enriched.append("- ").append(file).append('\n');
                 }
             }
+            if (!memberSymbols.isEmpty()) {
+                enriched.append("\nGRAPH_SYMBOLS (").append(memberSymbols.size()).append("):\n");
+                int n = 0;
+                for (String sym : memberSymbols) {
+                    if (n++ >= 60) {
+                        enriched.append("- …(+").append(memberSymbols.size() - 60).append(" more)\n");
+                        break;
+                    }
+                    enriched.append("- ").append(sym).append('\n');
+                }
+            }
+
             Map<String, Object> row = evidence("codewiki/community/" + name, "community", enriched.toString());
             row.put("score", score);
             row.put("retrievalType", "community");
             row.put("symbolName", name);
             row.put("symbolKind", "community");
+            row.put("communityId", id);
             row.put("memberFiles", memberFiles);
+            row.put("memberSymbols", memberSymbols);
             scored.add(row);
         }
         scored.sort((a, b) -> Integer.compare(
                 ((Number) b.getOrDefault("score", 0)).intValue(),
                 ((Number) a.getOrDefault("score", 0)).intValue()));
         return scored.size() > limit ? scored.subList(0, limit) : scored;
+    }
+
+    /** File inventory from graph file/config nodes — replaces ad-hoc list_files tools. */
+    public List<Map<String, Object>> graphFileInventoryContexts(String repoId, String ownerLogin, int limit) {
+        requireReadyIndex(repoId);
+        try {
+            JsonNode graph = codeWiki.fullGraph(codeWikiId(repoId));
+            LinkedHashSet<String> files = new LinkedHashSet<>();
+            for (JsonNode node : graph.path("nodes")) {
+                String type = node.path("type").asText("");
+                String path = normalizeRepoPath(node.path("file_path").asText(""));
+                if (path.isBlank()) {
+                    continue;
+                }
+                if ("file".equals(type) || "config".equals(type)
+                        || node.path("id").asText("").contains(":file:")) {
+                    files.add(path);
+                }
+            }
+            if (files.isEmpty()) {
+                return List.of();
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("图谱文件清单（来自 CodeWiki graph nodes，共 ")
+                    .append(files.size()).append(" 个）：\n");
+            int n = 0;
+            int capped = Math.max(20, limit * 8);
+            for (String file : files) {
+                sb.append("- ").append(file).append('\n');
+                if (++n >= capped) {
+                    sb.append("…(+").append(files.size() - capped).append(" more)\n");
+                    break;
+                }
+            }
+            Map<String, Object> row = evidence("codewiki/graph-files", "graph_nodes", sb.toString());
+            row.put("score", 120);
+            row.put("retrievalType", "graph_files");
+            row.put("symbolName", "graph_file_inventory");
+            return List.of(row);
+        } catch (Exception ex) {
+            return List.of(evidence("codewiki/graph-files", "system",
+                    "无法读取图谱文件清单: " + rootMessage(ex)));
+        }
+    }
+
+    /** Optional callers/callees/impact path for dependency questions. */
+    public List<Map<String, Object>> relationshipContexts(String repoId, String ownerLogin, String question) {
+        requireReadyIndex(repoId);
+        String symbol = extractSymbolHint(question);
+        if (symbol.isBlank()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        String lower = question == null ? "" : question.toLowerCase();
+        boolean wantCallers = containsAnyCi(lower, "调用者", "被谁调用", "谁调用", "caller", "who calls");
+        boolean wantCallees = containsAnyCi(lower, "调用了谁", "调用哪些", "callee", "calls what", "依赖了");
+        boolean wantImpact = containsAnyCi(lower, "影响", "impact", "波及");
+        if (!wantCallers && !wantCallees && !wantImpact) {
+            wantCallers = true;
+            wantCallees = true;
+        }
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("symbol", symbol);
+        params.put("name", symbol);
+        params.put("query", symbol);
+        JsonNode body = mapper.valueToTree(params);
+        try {
+            if (wantCallers) {
+                Map<String, Object> result = callers(repoId, ownerLogin, body);
+                Map<String, Object> row = evidence("codewiki/graph-callers/" + symbol, "graph_relationships",
+                        "CALLERS of " + symbol + ":\n" + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result));
+                row.put("score", 115);
+                row.put("retrievalType", "graph_callers");
+                out.add(row);
+            }
+            if (wantCallees) {
+                Map<String, Object> result = callees(repoId, ownerLogin, body);
+                Map<String, Object> row = evidence("codewiki/graph-callees/" + symbol, "graph_relationships",
+                        "CALLEES of " + symbol + ":\n" + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result));
+                row.put("score", 115);
+                row.put("retrievalType", "graph_callees");
+                out.add(row);
+            }
+            if (wantImpact) {
+                Map<String, Object> result = impact(repoId, ownerLogin, body);
+                Map<String, Object> row = evidence("codewiki/graph-impact/" + symbol, "graph_relationships",
+                        "IMPACT of " + symbol + ":\n" + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result));
+                row.put("score", 115);
+                row.put("retrievalType", "graph_impact");
+                out.add(row);
+            }
+        } catch (Exception ex) {
+            out.add(evidence("codewiki/graph-deps", "system",
+                    "节点依赖查询失败: " + rootMessage(ex)));
+        }
+        return out;
+    }
+
+    private static String extractSymbolHint(String question) {
+        if (question == null || question.isBlank()) {
+            return "";
+        }
+        Matcher path = Pattern.compile(
+                "([\\w./\\\\-]+\\.(?:java|ts|tsx|js|jsx|py))::([A-Za-z_][\\w.]*)").matcher(question);
+        if (path.find()) {
+            return path.group(2);
+        }
+        Matcher typed = Pattern.compile(
+                "\\b([A-Z][A-Za-z0-9]*(?:Service|Controller|Client|Repository|Engine|Handler|Manager)?)\\b"
+        ).matcher(question);
+        if (typed.find()) {
+            return typed.group(1);
+        }
+        Matcher method = Pattern.compile("\\b([a-z][A-Za-z0-9_]{2,})\\s*\\(").matcher(question);
+        if (method.find()) {
+            return method.group(1);
+        }
+        return "";
     }
 
     private Map<String, List<String>> graphSymbolsByFile(String codeWikiId) {
@@ -1247,27 +1461,12 @@ public class KnowledgeService {
     }
 
     public String toolListFiles(String repoId) {
-        try {
-            JsonNode graph = codeWiki.fullGraph(codeWikiId(repoId));
-            LinkedHashSet<String> files = new LinkedHashSet<>();
-            for (JsonNode node : graph.path("nodes")) {
-                String path = normalizeRepoPath(node.path("file_path").asText(""));
-                if (!path.isBlank()) {
-                    files.add(path);
-                }
-            }
-            if (files.isEmpty()) {
-                return "图中暂无 file_path。";
-            }
-            StringBuilder sb = new StringBuilder();
-            sb.append("仓库文件（来自 CodeWiki 图谱，共 ").append(files.size()).append(" 个）：\n");
-            for (String file : files) {
-                sb.append("- ").append(file).append('\n');
-            }
-            return sb.toString().trim();
-        } catch (Exception ex) {
-            return "列出文件失败: " + rootMessage(ex);
+        // File inventory must come from the graph, not a separate filesystem walk.
+        List<Map<String, Object>> rows = graphFileInventoryContexts(repoId, "", 80);
+        if (rows.isEmpty()) {
+            return "图谱中暂无文件节点。";
         }
+        return String.valueOf(rows.getFirst().getOrDefault("content", ""));
     }
 
     public String toolListSymbols(String repoId, String fileOrQuery) {

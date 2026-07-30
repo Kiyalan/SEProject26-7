@@ -66,6 +66,13 @@ public class KnowledgeQueryService {
         if (containsAny(lower, "参与者", "贡献者", "collaborator", "contributor", "作者", "谁写的", "维护者")) {
             intents.add("history");
         }
+        if (containsAny(lower, "哪些文件", "所有文件", "有哪些文件", "文件列表", "文件清单", "list files", "all files")) {
+            intents.add("graph_files");
+        }
+        if (containsAny(lower, "调用者", "被谁调用", "谁调用", "调用了谁", "caller", "callee",
+                "影响范围", "impact", "依赖关系", "who calls", "depends on")) {
+            intents.add("graph_deps");
+        }
         if (lower.contains("分支") || lower.contains("branch")) {
             intents.add("branches");
         }
@@ -104,6 +111,12 @@ public class KnowledgeQueryService {
             }
             if (intents.contains("history")) {
                 contexts.addAll(knowledgeService.commitHistoryContexts(repoId, ownerLogin, requestedCommitCount(retrievalQuestion)));
+            }
+            if (intents.contains("graph_files")) {
+                contexts.addAll(knowledgeService.graphFileInventoryContexts(repoId, ownerLogin, 40));
+            }
+            if (intents.contains("graph_deps")) {
+                contexts.addAll(knowledgeService.relationshipContexts(repoId, ownerLogin, retrievalQuestion));
             }
             if (intents.contains("overview")) {
                 contexts.add(knowledgeService.repositoryOverviewContext(repoId, ownerLogin));
@@ -335,7 +348,8 @@ public class KnowledgeQueryService {
         }
         return switch (type) {
             case "source_code", "code" -> 100;
-            case "community" -> 70;
+            case "graph_nodes", "graph_relationships" -> 95;
+            case "community" -> 88;
             case "repository_overview" -> 80;
             case "graph_explore" -> 45;
             default -> 50;
