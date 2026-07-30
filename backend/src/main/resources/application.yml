@@ -1,6 +1,5 @@
 server:
   port: 8000
-
 spring:
   application:
     name: repopilot-backend
@@ -23,7 +22,6 @@ spring:
     init:
       mode: always
       schema-locations: classpath:schema.sql
-
 repopilot:
   github:
     client-id: ${GITHUB_CLIENT_ID:}
@@ -43,12 +41,14 @@ repopilot:
   mail:
     host: ${MAIL_HOST:smtp.qq.com}
     port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:}
-    password: ${MAIL_PASSWORD:}
-    from: ${MAIL_FROM:RepoPilot <noreply@repopilot.dev>}
+    username: ${MAIL_USERNAME:1599621547@qq.com}
+    password: ${MAIL_PASSWORD:gwebfvdbzomhjcgb}
+    from: ${MAIL_FROM:RepoPilot <1599621547@qq.com>}
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.ssl.trust: smtp.qq.com
   codewiki:
     base-url: ${CODEWIKI_BASE_URL:http://127.0.0.1:8001}
     host-repo-root: ${CODEWIKI_HOST_REPO_ROOT:./data/repos}
@@ -61,3 +61,6 @@ repopilot:
     run-poll-seconds: ${CODEWIKI_RUN_POLL_SECONDS:5}
     # Large repos often need >1h (AST parse + persist). Default 2h.
     run-timeout-seconds: ${CODEWIKI_RUN_TIMEOUT_SECONDS:7200}
+  admin:
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:repopilot2026}
