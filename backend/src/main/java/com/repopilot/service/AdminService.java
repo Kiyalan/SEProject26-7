@@ -83,14 +83,14 @@ public class AdminService {
         stats.put("syncedRepos", synced == null ? 0 : synced);
         stats.put("failedRepos", failed == null ? 0 : failed);
         stats.put("knowledgeChunks", chunks == null ? 0 : chunks);
-        stats.put("memoryEntries", 0);
         stats.put("faqEntries", faq == null ? 0 : faq);
         stats.put("activeUsers", jdbc.queryForObject(
                 "SELECT COUNT(*) FROM app_users WHERE status = 'active'", Integer.class));
-        stats.put("openIssues", 0);
         stats.put("syncSuccessRate", rate);
-        stats.put("lastFullCheck", LocalDateTime.now(ZoneOffset.UTC).format(TS));
-
+        String lastIndexed = jdbc.query("""
+                SELECT MAX(indexed_at) FROM repo_index WHERE indexed_at IS NOT NULL AND indexed_at <> ''
+                """, rs -> rs.next() ? rs.getString(1) : null);
+        stats.put("lastIndexedAt", lastIndexed == null || lastIndexed.isBlank() ? "" : lastIndexed);
         List<Map<String, Object>> trend = new ArrayList<>();
         for (int i = 6; i >= 0; i--) {
             LocalDate day = LocalDate.now(ZoneOffset.UTC).minusDays(i);
@@ -155,7 +155,6 @@ public class AdminService {
             row.put("filesSynced", rs.getInt("files_indexed"));
             String message = rs.getString("message");
             row.put("errorMessage", "failed".equals(rs.getString("status")) ? message : null);
-            row.put("trigger", "manual");
             return row;
         }, args.toArray());
         return Map.of("items", items, "total", items.size());
@@ -171,14 +170,13 @@ public class AdminService {
                 ORDER BY CASE WHEN t.finished_at IS NULL THEN 1 ELSE 0 END, t.finished_at DESC, t.requested_at DESC
                 LIMIT ?
                 """, (rs, rowNum) -> {
+            String message = rs.getString("message");
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("id", rs.getString("task_id"));
             row.put("repoFullName", rs.getString("full_name"));
             row.put("failedAt", rs.getString("finished_at"));
-            row.put("errorType", "parse");
-            row.put("errorMessage", rs.getString("message"));
-            row.put("retryCount", 0);
-            row.put("status", "pending");
+            row.put("errorType", classifyErrorType(message));
+            row.put("errorMessage", message == null ? "" : message);
             return row;
         }, Math.min(Math.max(limit, 1), 200));
         return Map.of("items", items, "total", items.size());
@@ -201,10 +199,8 @@ public class AdminService {
             row.put("repoId", rs.getString("repo_id"));
             row.put("repoFullName", rs.getString("full_name"));
             row.put("knowledgeOk", knowledgeOk);
-            row.put("memoryOk", true);
             row.put("faqOk", faqCount > 0);
             row.put("chunkCount", rs.getInt("chunk_count"));
-            row.put("memoryCount", 0);
             row.put("lastChecked", rs.getString("indexed_at"));
             row.put("issues", issues);
             return row;
@@ -224,13 +220,11 @@ public class AdminService {
             row.put("repoId", rs.getString("repo_id"));
             row.put("repoFullName", rs.getString("full_name"));
             row.put("faqCount", rs.getInt("faq_count"));
-            row.put("memoryCount", 0);
             row.put("lastUpdated", rs.getString("last_updated") == null ? "" : rs.getString("last_updated"));
             return row;
         });
         return Map.of("items", items, "total", items.size());
     }
-
     public Map<String, Object> exportFaq(List<String> repoIds, String format, String admin) {
         String normalized = "json".equalsIgnoreCase(format) ? "json" : "markdown";
         String exportedAt = LocalDateTime.now(ZoneOffset.UTC).format(TS);
@@ -360,11 +354,30 @@ public class AdminService {
                 LocalDateTime.now(ZoneOffset.UTC).format(TS));
     }
 
+    private static String classifyErrorType(String message) {
+        String m = message == null ? "" : message.toLowerCase();
+        if (m.contains("401") || m.contains("403") || m.contains("auth") || m.contains("token") || m.contains("unauthorized")) {
+            return "auth";
+        }
+        if (m.contains("rate limit") || m.contains("429") || m.contains("secondary rate")) {
+            return "rate_limit";
+        }
+        if (m.contains("timeout") || m.contains("timed out") || m.contains("connection")
+                || m.contains("connect") || m.contains("network") || m.contains("unreachable")) {
+            return "network";
+        }
+        if (m.contains("webhook")) {
+            return "webhook";
+        }
+        return "parse";
+    }
+
     private static String mapTaskStatus(String status) {
         return switch (status == null ? "" : status) {
             case "completed" -> "success";
             case "running", "queued" -> "running";
-            case "failed", "cancelled" -> "failed";
+            case "failed" -> "failed";
+            case "cancelled" -> "paused";
             default -> "paused";
         };
     }

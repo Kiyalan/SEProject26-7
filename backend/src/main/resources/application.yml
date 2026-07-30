@@ -61,6 +61,3 @@ repopilot:
     run-poll-seconds: ${CODEWIKI_RUN_POLL_SECONDS:5}
     # Large repos often need >1h (AST parse + persist). Default 2h.
     run-timeout-seconds: ${CODEWIKI_RUN_TIMEOUT_SECONDS:7200}
-  admin:
-    username: ${ADMIN_USERNAME:admin}
-    password: ${ADMIN_PASSWORD:repopilot2026}

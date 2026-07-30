@@ -9,20 +9,14 @@ const statusOptions = [
   { value: 'success', label: '成功' },
   { value: 'running', label: '进行中' },
   { value: 'failed', label: '失败' },
-  { value: 'paused', label: '暂停' },
+  { value: 'paused', label: '已取消' },
 ]
-
-const triggerLabel: Record<AdminSyncTask['trigger'], string> = {
-  manual: '手动',
-  webhook: 'Webhook',
-  scheduled: '定时',
-}
 
 const statusTag: Record<AdminSyncTask['status'], { color: string; label: string }> = {
   success: { color: 'green', label: '成功' },
   running: { color: 'blue', label: '进行中' },
   failed: { color: 'red', label: '失败' },
-  paused: { color: 'orange', label: '暂停' },
+  paused: { color: 'orange', label: '已取消' },
 }
 
 export default function AdminSyncLogs() {
@@ -50,12 +44,6 @@ export default function AdminSyncLogs() {
     { title: '任务 ID', dataIndex: 'id', width: 120, ellipsis: true },
     { title: '仓库', dataIndex: 'repoFullName' },
     {
-      title: '触发方式',
-      dataIndex: 'trigger',
-      width: 100,
-      render: (t: AdminSyncTask['trigger']) => triggerLabel[t],
-    },
-    {
       title: '状态',
       dataIndex: 'status',
       width: 90,
@@ -79,7 +67,7 @@ export default function AdminSyncLogs() {
     <div className="admin-page">
       <div className="admin-page-header">
         <h1>同步任务日志</h1>
-        <p>查看全平台知识库构建/同步记录（来自 knowledge_build_tasks）</p>
+        <p>全平台知识库构建任务（knowledge_build_tasks）</p>
       </div>
 
       {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />}

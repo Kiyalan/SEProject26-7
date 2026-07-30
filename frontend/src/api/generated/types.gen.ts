@@ -650,12 +650,10 @@ export type AdminPlatformStats = {
     syncedRepos: number;
     failedRepos: number;
     knowledgeChunks: number;
-    memoryEntries: number;
     faqEntries: number;
     activeUsers: number;
-    openIssues: number;
     syncSuccessRate: number;
-    lastFullCheck: string;
+    lastIndexedAt: string;
 };
 
 export type AdminHealthTrendPoint = {
@@ -674,7 +672,6 @@ export type AdminSyncTask = {
     endedAt?: string | null;
     filesSynced: number;
     errorMessage?: string | null;
-    trigger: 'manual' | 'webhook' | 'scheduled';
 };
 
 export type AdminOverview = {
@@ -694,8 +691,6 @@ export type AdminSyncFailure = {
     failedAt: string;
     errorType: 'network' | 'auth' | 'rate_limit' | 'webhook' | 'parse';
     errorMessage: string;
-    retryCount: number;
-    status: 'pending' | 'retrying' | 'ignored';
 };
 
 export type AdminSyncFailureList = {
@@ -707,10 +702,8 @@ export type AdminIntegrityCheck = {
     repoId?: string;
     repoFullName: string;
     knowledgeOk: boolean;
-    memoryOk: boolean;
     faqOk: boolean;
     chunkCount: number;
-    memoryCount: number;
     lastChecked: string;
     issues: Array<string>;
 };
@@ -724,7 +717,6 @@ export type AdminFaqRepoOption = {
     repoId: string;
     repoFullName: string;
     faqCount: number;
-    memoryCount: number;
     lastUpdated: string;
 };
 
