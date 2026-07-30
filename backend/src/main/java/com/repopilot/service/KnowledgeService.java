@@ -432,108 +432,123 @@ public class KnowledgeService {
     }
 
     /**
-     * Chat retrieval: GraphRAG communities first (map of the repo), then expand member
-     * files into concrete source / API inventories, then GraphRAG chunks + explore.
-     * Skips CodeWiki /ask (second LLM) — RepoPilot chat owns synthesis / tool loops.
+     * Chat retrieval: GraphRAG retrieve is the primary evidence; communities orient;
+     * only a few target files are read locally (never bulk-expand a whole community).
      */
     public List<Map<String, Object>> graphRagContexts(String repoId, String ownerLogin, String question, int limit) {
         RepoIndex index = requireReadyIndex(repoId);
         String codeWikiId = index.getCodeWikiRepoId();
         List<Map<String, Object>> contexts = new ArrayList<>();
-        int bound = Math.min(Math.max(limit, 12), 36);
+        int bound = Math.min(Math.max(limit, 12), 32);
         Set<String> seenFiles = new LinkedHashSet<>();
+        LinkedHashSet<String> targetFiles = new LinkedHashSet<>();
 
-        // 1) Communities first — Q&A orientation layer for any repo size
-        List<Map<String, Object>> communities = List.of();
-        try {
-            communities = communityContexts(codeWikiId, question, 14);
-            contexts.addAll(communities);
-        } catch (Exception ignored) {
-            // optional
-        }
-
-        // 2) Expand top communities → local source / public API (concrete code)
-        try {
-            contexts.addAll(expandCommunitiesToSource(
-                    repoId, ownerLogin, index, communities, seenFiles, 10));
-        } catch (Exception ignored) {
-            // optional
-        }
-
-        // 3) Question-named types/files (still high priority when user names a symbol)
-        try {
-            List<Map<String, Object>> local = localSourceFallbacks(repoId, ownerLogin, index, question, seenFiles, 6);
-            contexts.addAll(local);
-        } catch (Exception ignored) {
-            // optional
-        }
-
-        // 4) GraphRAG retrieve → source chunks
+        // 1) GraphRAG retrieve — primary concrete evidence (chunks / embeddings / FTS)
         try {
             JsonNode retrieve = codeWiki.retrieve(codeWikiId, question, 2);
-            List<Map<String, Object>> chunks = evidenceRows(retrieve, Math.min(bound, 14), "source_code");
-            Set<String> focusFiles = focusedSourceFiles(contexts);
+            List<Map<String, Object>> chunks = evidenceRows(retrieve, Math.min(bound, 16), "source_code");
             for (Map<String, Object> chunk : chunks) {
                 String content = String.valueOf(chunk.getOrDefault("content", "")).trim();
                 if (content.isBlank()) {
                     continue;
                 }
                 String file = normalizeRepoPath(String.valueOf(chunk.getOrDefault("file", "")));
-                if (!focusFiles.isEmpty() && !file.isBlank()) {
-                    String base = Path.of(file).getFileName().toString();
-                    boolean keepsFocus = focusFiles.stream().anyMatch(f -> {
-                        String focusBase = Path.of(f).getFileName().toString();
-                        return focusBase.equalsIgnoreCase(base) || file.equalsIgnoreCase(f)
-                                || file.endsWith("/" + focusBase);
-                    });
-                    // Keep community-expanded focus, but still allow a few general chunks when empty
-                    if (!keepsFocus && focusFiles.size() >= 2) {
-                        continue;
-                    }
-                }
                 if (content.length() > 6000) {
                     chunk.put("content", content.substring(0, 6000) + "\n…(truncated)");
                 }
-                chunk.put("score", Math.max(asDouble(chunk.get("score")), 50) + 20);
+                chunk.put("score", Math.max(asDouble(chunk.get("score")), 60) + 40);
+                chunk.put("retrievalType", "graphrag_chunk");
                 contexts.add(chunk);
                 if (!file.isBlank()) {
                     seenFiles.add(file);
+                    targetFiles.add(file);
                 }
             }
             JsonNode pack = retrieve.path("context_pack");
             if (pack.isObject()) {
                 String packText = firstText(pack, "text", "content", "markdown");
-                if (!packText.isBlank() && packText.length() > 80 && focusFiles.isEmpty()) {
+                if (!packText.isBlank() && packText.length() > 80) {
                     Map<String, Object> row = evidence("codewiki/context-pack", "source_code",
                             packText.length() > 8000 ? packText.substring(0, 8000) + "\n…(truncated)" : packText);
-                    row.put("score", 70);
-                    row.put("retrievalType", "graph");
+                    row.put("score", 95);
+                    row.put("retrievalType", "graphrag_pack");
                     contexts.add(row);
                 }
             }
         } catch (Exception ex) {
             Map<String, Object> notice = evidence("codewiki/graphrag-retrieve", "system",
-                    "源码片段检索暂不可用: " + rootMessage(ex));
+                    "GraphRAG 源码检索暂不可用: " + rootMessage(ex));
             notice.put("score", 8);
             contexts.add(notice);
         }
 
-        // 5) Graph explore
+        // 2) Communities — map only (do not expand every member file)
+        List<Map<String, Object>> communities = List.of();
+        try {
+            communities = communityContexts(codeWikiId, question, 6);
+            for (Map<String, Object> community : communities) {
+                community.put("score", Math.max(asDouble(community.get("score")), 40) + 15);
+                contexts.add(community);
+                // Collect candidate paths that also match the question tokens
+                Object filesObj = community.get("memberFiles");
+                if (filesObj instanceof List<?> list) {
+                    for (Object item : list) {
+                        String path = normalizeRepoPath(String.valueOf(item));
+                        if (!path.isBlank() && pathMatchesQuestion(path, question)) {
+                            targetFiles.add(path);
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // optional
+        }
+
+        // 3) Question-named symbols/paths → at most a few local targets
+        try {
+            List<Map<String, Object>> named = localSourceFallbacks(
+                    repoId, ownerLogin, index, question, seenFiles, 3);
+            for (Map<String, Object> row : named) {
+                contexts.add(row);
+                String file = normalizeRepoPath(String.valueOf(row.getOrDefault("file", "")));
+                if (file.endsWith("#api")) {
+                    file = file.substring(0, file.length() - 4);
+                }
+                if (!file.isBlank()) {
+                    targetFiles.add(file);
+                }
+            }
+        } catch (Exception ignored) {
+            // optional
+        }
+
+        // 4) Read only top target files hinted by GraphRAG (+ question overlap), not whole community
+        try {
+            List<String> rankedTargets = rankTargetFiles(targetFiles, question, 3);
+            if (!rankedTargets.isEmpty()) {
+                String joined = String.join(" ", rankedTargets);
+                contexts.addAll(localSourceFallbacks(repoId, ownerLogin, index, joined, seenFiles, 3));
+            }
+        } catch (Exception ignored) {
+            // optional
+        }
+
+        // 5) Graph explore — structural hint (secondary)
         try {
             JsonNode explore = codeWiki.explore(codeWikiId, mapper.valueToTree(Map.of(
                     "query", question,
-                    "max_files", 12,
-                    "max_nodes", 120
+                    "max_files", 8,
+                    "max_nodes", 80
             )));
             String exploreText = explore.path("text").asText("");
             if (!exploreText.isBlank()) {
                 Map<String, Object> row = evidence("codewiki/graph-explore", "graph_explore",
-                        exploreText.length() > 8000 ? exploreText.substring(0, 8000) + "\n…(truncated)" : exploreText);
-                row.put("score", 70);
+                        exploreText.length() > 6000 ? exploreText.substring(0, 6000) + "\n…(truncated)" : exploreText);
+                row.put("score", 55);
                 row.put("retrievalType", "graph");
                 contexts.add(row);
             }
-            contexts.addAll(localFilesFromExplore(repoId, ownerLogin, index, explore, seenFiles, 3));
+            contexts.addAll(localFilesFromExplore(repoId, ownerLogin, index, explore, seenFiles, 2));
         } catch (Exception ex) {
             Map<String, Object> notice = evidence("codewiki/graph-explore", "system",
                     "图探索暂不可用: " + rootMessage(ex));
@@ -548,35 +563,55 @@ public class KnowledgeService {
         return contexts.size() > bound ? contexts.subList(0, bound) : contexts;
     }
 
-    /** Drill from community summaries into local source files mentioned there. */
-    private List<Map<String, Object>> expandCommunitiesToSource(
-            String repoId, String ownerLogin, RepoIndex index,
-            List<Map<String, Object>> communities, Set<String> seenFiles, int limit) {
-        if (communities == null || communities.isEmpty() || limit <= 0) {
-            return List.of();
+    private static boolean pathMatchesQuestion(String path, String question) {
+        if (path == null || path.isBlank() || question == null || question.isBlank()) {
+            return false;
         }
-        LinkedHashSet<String> paths = new LinkedHashSet<>();
-        int communityBudget = Math.min(8, communities.size());
-        for (int i = 0; i < communityBudget; i++) {
-            Map<String, Object> community = communities.get(i);
-            String content = String.valueOf(community.getOrDefault("content", ""));
-            paths.addAll(extractPathsFromText(content));
-            Object filesObj = community.get("memberFiles");
-            if (filesObj instanceof List<?> list) {
-                for (Object item : list) {
-                    String path = normalizeRepoPath(String.valueOf(item));
-                    if (!path.isBlank()) {
-                        paths.add(path);
-                    }
-                }
+        String lowerQ = question.toLowerCase();
+        String base = Path.of(path).getFileName().toString().toLowerCase();
+        String stem = base.contains(".") ? base.substring(0, base.lastIndexOf('.')) : base;
+        if (stem.length() >= 3 && lowerQ.contains(stem)) {
+            return true;
+        }
+        for (String token : lowerQ.split("[\\s\\p{Punct}]+")) {
+            if (token.length() >= 4 && (base.contains(token) || path.toLowerCase().contains(token))) {
+                return true;
             }
         }
-        if (paths.isEmpty()) {
+        return false;
+    }
+
+    private static List<String> rankTargetFiles(Set<String> candidates, String question, int limit) {
+        if (candidates == null || candidates.isEmpty() || limit <= 0) {
             return List.of();
         }
-        // Reuse local reader by synthesizing a question that mentions the paths.
-        String joined = String.join(" ", paths.stream().limit(16).toList());
-        return localSourceFallbacks(repoId, ownerLogin, index, joined, seenFiles, limit);
+        List<String> ranked = new ArrayList<>(candidates);
+        ranked.sort((a, b) -> Integer.compare(
+                pathMatchScore(b, question), pathMatchScore(a, question)));
+        // Prefer question-matching paths; if none match, still take top GraphRAG hits
+        List<String> matched = ranked.stream()
+                .filter(p -> pathMatchScore(p, question) > 0)
+                .limit(limit)
+                .toList();
+        if (!matched.isEmpty()) {
+            return matched;
+        }
+        return ranked.stream().limit(limit).toList();
+    }
+
+    private static int pathMatchScore(String path, String question) {
+        if (path == null || path.isBlank()) {
+            return 0;
+        }
+        int score = 1; // GraphRAG-hit baseline
+        if (pathMatchesQuestion(path, question)) {
+            score += 10;
+        }
+        String base = Path.of(path).getFileName().toString().toLowerCase();
+        if (base.endsWith(".java") || base.endsWith(".py") || base.endsWith(".ts") || base.endsWith(".tsx")) {
+            score += 2;
+        }
+        return score;
     }
 
     static List<String> extractPathsFromText(String text) {
@@ -1327,6 +1362,41 @@ public class KnowledgeService {
             return text.length() > 8000 ? text.substring(0, 8000) + "\n…(truncated)" : text;
         } catch (Exception ex) {
             return "explore 失败: " + rootMessage(ex);
+        }
+    }
+
+    public String toolCallers(String repoId, String symbolOrQuery) {
+        return toolRelationship(repoId, "callers", symbolOrQuery);
+    }
+
+    public String toolCallees(String repoId, String symbolOrQuery) {
+        return toolRelationship(repoId, "callees", symbolOrQuery);
+    }
+
+    public String toolImpact(String repoId, String symbolOrQuery) {
+        return toolRelationship(repoId, "impact", symbolOrQuery);
+    }
+
+    private String toolRelationship(String repoId, String kind, String symbolOrQuery) {
+        try {
+            Map<String, Object> params = new LinkedHashMap<>();
+            String q = symbolOrQuery == null ? "" : symbolOrQuery.trim();
+            if (!q.isBlank()) {
+                params.put("symbol", q);
+                params.put("name", q);
+                params.put("query", q);
+            }
+            JsonNode body = mapper.valueToTree(params);
+            Map<String, Object> result = switch (kind) {
+                case "callers" -> callers(repoId, "", body);
+                case "callees" -> callees(repoId, "", body);
+                case "impact" -> impact(repoId, "", body);
+                default -> Map.of();
+            };
+            String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
+            return json.length() > 10_000 ? json.substring(0, 10_000) + "\n…(truncated)" : json;
+        } catch (Exception ex) {
+            return kind + " 失败: " + rootMessage(ex);
         }
     }
 

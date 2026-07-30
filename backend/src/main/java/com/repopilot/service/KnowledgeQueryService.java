@@ -328,11 +328,14 @@ public class KnowledgeQueryService {
             return 110;
         }
         if ("local_file".equals(retrieval)) {
-            return 105;
+            return 100;
+        }
+        if ("graphrag_chunk".equals(retrieval) || "graphrag_pack".equals(retrieval)) {
+            return 108;
         }
         return switch (type) {
             case "source_code", "code" -> 100;
-            case "community" -> 85;
+            case "community" -> 70;
             case "repository_overview" -> 80;
             case "graph_explore" -> 45;
             default -> 50;

@@ -126,8 +126,9 @@ public class LlmService {
         String system = "你是仓库助手 RepoPilot。根据参考资料直接回答用户问题。"
                 + "必须围绕用户问题的完整原文作答：先给结论，再列关键要点。"
                 + "只用资料中的事实；不确定就明确说不确定，不要编造。"
-                + "优先依据 GraphRAG 社区摘要理解模块边界，再依据源码/API 清单回答具体文件与方法。"
-                + "列出类/方法时，只能依据对应源码文件中真实出现的签名；禁止把单元测试方法名当成业务 API。"
+                + "优先依据 GraphRAG 检索到的源码片段作答；社区摘要只用于模块定位。"
+                + "仅当片段不足以列出签名时，才使用已附带的少量目标文件源码/API 清单。"
+                + "列出类/方法时，只能依据对应源码片段或文件中真实出现的签名；禁止把单元测试方法名当成业务 API。"
                 + "用中文分段表述；不要使用 Markdown 加粗；不要复述资料编号、内部标签或系统实现细节。"
                 + briefIntentHint(intent);
         StringBuilder user = new StringBuilder();
@@ -448,6 +449,25 @@ public class LlmService {
                 ))));
         streamCompletion(emitter, message, questionType, contexts, intent, priorUserMessages);
         emitter.complete();
+    }
+
+    /**
+     * Stream answer tokens only (no meta/done/complete). Used after tool-gather so the UI
+     * gets real LLM streaming instead of a blocked fake chunk dump.
+     */
+    public void streamAnswerTokens(SseEmitter emitter, String question, String questionType,
+                                   List<Map<String, Object>> contexts, String intent,
+                                   List<String> priorUserMessages) throws Exception {
+        if (!configured() || contexts == null || contexts.isEmpty()) {
+            String fallback = contexts == null || contexts.isEmpty()
+                    ? "未检索到可用资料。请确认已构建知识库，或换一种问法后重试。"
+                    : sanitizeAnswer(buildFallback(question, questionType, contexts, intent));
+            emitter.send(SseEmitter.event()
+                    .name("token")
+                    .data(mapper.writeValueAsString(Map.of("content", fallback))));
+            return;
+        }
+        streamCompletion(emitter, question, questionType, contexts, intent, priorUserMessages);
     }
 
     private void streamCompletion(SseEmitter emitter, String question, String questionType,
