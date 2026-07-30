@@ -45,3 +45,7 @@ logs/
 Thumbs.db
 *.swp
 *~
+
+*.tar
+codewiki-*.tar
+pgvector-*.tar
