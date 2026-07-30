@@ -206,6 +206,9 @@ export type ProgressSnapshot = {
     status: 'idle' | 'running' | 'done' | 'error';
     progress: number;
     message: string;
+    /**
+     * Current build stage identifier: preparing, git_sync, register, analyze, graphrag, update, indexing, quality
+     */
     stage: string;
     total: number;
     done: number;
@@ -311,13 +314,6 @@ export type KnowledgeOverview = {
     indexedAt?: string;
     fileCount: number;
     chunkCount: number;
-    /** Local working-tree approximate LOC (GitHub has no native total LOC field). */
-    lineCount?: number;
-    sourceFileCount?: number;
-    lineCountByLanguage?: {
-        [key: string]: number;
-    };
-    lineCountNote?: string;
     tree: Array<KnowledgeNode>;
     modules: Array<{
         name: string;
@@ -365,16 +361,8 @@ export type KnowledgeGraphStatus = {
     edgeCount: number;
     communityCount: number;
     chunkCount: number;
-    fileCount?: number;
-    nodesByType?: {
-        [key: string]: number;
-    };
-    edgesByType?: {
-        [key: string]: number;
-    };
     indexedAt?: string;
     message?: string;
-    inspectHint?: string;
 };
 
 export type KnowledgeGraphNode = {
@@ -1208,44 +1196,6 @@ export type FetchKnowledgeResponses = {
 };
 
 export type FetchKnowledgeResponse = FetchKnowledgeResponses[keyof FetchKnowledgeResponses];
-
-export type ResetKnowledgeData = {
-    body?: never;
-    path: {
-        /**
-         * GitHub repository numeric id (string in frontend paths)
-         */
-        repoId: string;
-    };
-    query?: never;
-    url: '/api/repos/{repoId}/knowledge';
-};
-
-export type ResetKnowledgeErrors = {
-    /**
-     * Missing or invalid Bearer token
-     */
-    401: ErrorDetail;
-    /**
-     * Internal server error
-     */
-    500: ErrorDetail;
-};
-
-export type ResetKnowledgeError = ResetKnowledgeErrors[keyof ResetKnowledgeErrors];
-
-export type ResetKnowledgeResponses = {
-    /**
-     * Knowledge base reset successfully
-     */
-    200: {
-        repoId: string;
-        status: string;
-        message: string;
-    };
-};
-
-export type ResetKnowledgeResponse = ResetKnowledgeResponses[keyof ResetKnowledgeResponses];
 
 export type FetchKnowledgeCommitsData = {
     body?: never;

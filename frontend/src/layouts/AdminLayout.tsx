@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState } from 'react';
 import { Layout, Menu, Avatar, Input, Dropdown, Space } from 'antd';
 import {

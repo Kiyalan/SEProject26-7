@@ -154,6 +154,7 @@ export default function IssueList() {
     setAnalyzing(true)
     setError(null)
     try {
+      // force=true：用户主动点「分析」时刷新分类；进入页面不会自动分析
       const results = await Promise.all(
         filtered.map(async (issue) => {
           const { data } = await analyzeIssue({
@@ -221,6 +222,7 @@ export default function IssueList() {
     setMailing(true)
     try {
       const payloadIssues = filtered.slice(0, 20)
+      // ensure analyzed
       for (const issue of payloadIssues) {
         if (!analyses[issue.id]) {
           await handleAnalyzeOne(issue, false)
@@ -356,12 +358,27 @@ export default function IssueList() {
     },
   ]
 
+  // 修复描述文字竖排错乱：强制宽度 100% + 正常换行
+  const pageDescription = (
+    <div style={{
+      width: '100%',
+      whiteSpace: 'normal',
+      wordBreak: 'break-word',
+      writingMode: 'horizontal-tb',
+      lineHeight: 1.6,
+      color: '#6b7280',
+      fontSize: 13,
+    }}>
+      多信号分类 + 可解释置信度；分析与 GitHub 回复/邮件通知分离，需手动触发
+    </div>
+  )
+
   return (
     <PageShell
       title="Issue 智能分析"
-      description="多信号分类 + 可解释置信度；分析与 GitHub 回复/邮件通知分离，需手动触发"
+      description={pageDescription}
       actions={
-        <Space size={8}>
+        <Space wrap size={8}>
           <Select
             value={currentRepoId || undefined}
             onChange={(value) => setCurrentRepo(value)}
@@ -370,6 +387,29 @@ export default function IssueList() {
             disabled={isRepoListPending}
             options={repoList.map((r) => ({ value: r.id, label: r.fullName }))}
           />
+          <Select
+            value={issueState}
+            onChange={(value) => setIssueState(value)}
+            style={{ minWidth: 120 }}
+            options={[
+              { value: 'all', label: '全部状态' },
+              { value: 'open', label: 'Open' },
+              { value: 'closed', label: 'Closed' },
+            ]}
+          />
+          <Select
+            value={typeFilter}
+            onChange={setTypeFilter}
+            style={{ minWidth: 160 }}
+            options={[
+              { value: 'all', label: '全部类型' },
+              ...Object.entries(issueTypeLabels).map(([value, meta]) => ({
+                value,
+                label: meta.label,
+              })),
+            ]}
+          />
+          <Button icon={<SyncOutlined />} onClick={loadIssues} disabled={loading || !currentRepoId} />
           <Button
             type="primary"
             disabled={analyzing || !currentRepoId || filtered.length === 0}
@@ -377,6 +417,22 @@ export default function IssueList() {
             onClick={handleAnalyzeAll}
           >
             分析当前列表
+          </Button>
+          <Button
+            icon={<CommentOutlined />}
+            disabled={replyingAll || !currentRepoId || filtered.length === 0}
+            loading={replyingAll}
+            onClick={handleReplyAll}
+          >
+            统一回复未回复项
+          </Button>
+          <Button
+            icon={<MailOutlined />}
+            disabled={mailing || !currentRepoId || filtered.length === 0}
+            loading={mailing}
+            onClick={handleEmailDigest}
+          >
+            邮件提示回复
           </Button>
         </Space>
       }
@@ -391,40 +447,8 @@ export default function IssueList() {
           <Alert type="info" showIcon message="请先在顶栏或此处选择仓库" style={{ borderRadius: 10 }} />
         )}
         {error && <Alert type="error" message={error} showIcon style={{ borderRadius: 10 }} />}
-
-        {/* 筛选与操作栏卡片 */}
-        <Card style={cardStyle} styles={{ body: { padding: '16px 20px' } }}>
-          {/* 第一行：状态 + 类型筛选 + 刷新 */}
-          <Space wrap size={12} style={{ marginBottom: 16 }}>
-            <Select
-              value={issueState}
-              onChange={(value) => setIssueState(value)}
-              style={{ minWidth: 120 }}
-              options={[
-                { value: 'all', label: '全部状态' },
-                { value: 'open', label: 'Open' },
-                { value: 'closed', label: 'Closed' },
-              ]}
-            />
-            <Select
-              value={typeFilter}
-              onChange={setTypeFilter}
-              style={{ minWidth: 160 }}
-              options={[
-                { value: 'all', label: '全部类型' },
-                ...Object.entries(issueTypeLabels).map(([value, meta]) => ({
-                  value,
-                  label: meta.label,
-                })),
-              ]}
-            />
-            <Button icon={<SyncOutlined />} onClick={loadIssues} disabled={loading || !currentRepoId}>
-              刷新
-            </Button>
-          </Space>
-
-          {/* 第二行：过滤开关 + 统计 */}
-          <Space wrap size={16} style={{ marginBottom: 16 }}>
+        <Card style={cardStyle} styles={{ body: { padding: '12px 20px' } }}>
+          <Space wrap size={16}>
             <Space>
               <Text type="secondary">过滤乱码</Text>
               <Switch checked={hideGarbled} onChange={setHideGarbled} />
@@ -438,33 +462,12 @@ export default function IssueList() {
               {meta.filteredOut > 0 ? `（已隐藏 ${meta.filteredOut}）` : ''}
             </Text>
           </Space>
-
-          {/* 第三行：批量操作按钮 */}
-          <Space wrap size={8}>
-            <Button
-              icon={<CommentOutlined />}
-              disabled={replyingAll || !currentRepoId || filtered.length === 0}
-              loading={replyingAll}
-              onClick={handleReplyAll}
-            >
-              统一回复未回复项
-            </Button>
-            <Button
-              icon={<MailOutlined />}
-              disabled={mailing || !currentRepoId || filtered.length === 0}
-              loading={mailing}
-              onClick={handleEmailDigest}
-            >
-              邮件提示回复
-            </Button>
-          </Space>
         </Card>
-
         {currentRepoId && !loading && issues.length === 0 && !error && (
           <Alert
             type="warning"
             showIcon
-            style={{ borderRadius: 10, marginTop: 16 }}
+            style={{ borderRadius: 10 }}
             message="当前筛选下没有 Issue"
             description={
               <>
@@ -475,10 +478,8 @@ export default function IssueList() {
             }
           />
         )}
-
-        {/* Issue 列表卡片 */}
         <Card
-          style={{ ...cardStyle, marginTop: 16 }}
+          style={cardStyle}
           title={
             <span style={{ fontWeight: 700, fontSize: 15 }}>
               共 {filtered.length} 条 Issue
