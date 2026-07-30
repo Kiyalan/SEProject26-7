@@ -175,24 +175,27 @@ def _parse_one_file_subprocess(
                 pass
 
 
-_RICH_COMMUNITY_PROMPT = """Name and summarize graph communities for GraphRAG retrieval.
+_RICH_COMMUNITY_PROMPT = """Name and summarize graph communities for GraphRAG retrieval / Q&A.
 
-Goal: each community summary must be dense enough that a later Q&A system could answer
-module-level questions using ONLY this summary plus the listed files/symbols.
+Goal: each community summary must be dense enough that a later Q&A system can answer
+module-level AND method-level questions by combining this summary with the listed files.
 
 For every community produce:
 1) A concise developer-facing subsystem name (2-8 words, capability/workflow oriented).
-2) A grounded summary of 3-6 sentences covering:
-   - Primary responsibility / what this cluster does in the repo
-   - Key files and symbols (classes, functions, endpoints) and their roles
-   - Important inbound/outbound dependencies (what it uses / what uses it)
-   - Typical questions this community can help answer
-   - Unclear boundaries only when the graph evidence is weak
+2) A grounded summary that ALWAYS includes these labeled sections (still as continuous prose or bullets):
+   - FILES: exhaustive list of member file paths from the payload (path/to/file.ext)
+   - SYMBOLS: classes/functions/methods with short role notes (prefer real names from payload)
+   - DEPENDS: inbound/outbound dependencies grounded in edges
+   - CAN_ANSWER: 2-4 example questions this community can answer
+   - PURPOSE: primary responsibility in the repo
+   Write enough detail for retrieval (target dense multi-sentence / multi-bullet text).
 
 Rules:
 - Use only the provided graph evidence (files, symbols, edges, deterministic summary).
 - Do not invent modules, APIs, files, or dependencies.
 - Prefer capability names over generic layer names (avoid Backend/Frontend/Core/Misc/Cluster N).
+- Do not create single-file communities for trivial config-only leaves when they can be folded
+  into a related subsystem; if the payload is truly only one config file, keep it short.
 - Write a fresh summary; do not copy the deterministic Louvain template verbatim.
 - Keep node membership unchanged.
 - Return only JSON in the requested shape.
@@ -259,8 +262,9 @@ def apply_community_naming_patches() -> None:
             "Keep node membership unchanged."
         )
         payload["summary_rules"] = [
-            "Write 3-6 source-grounded sentences suitable for later retrieval-augmented answering.",
-            "Cover responsibility, key files/symbols, inbound/outbound dependencies, and example questions.",
+            "Write a Q&A-dense summary with FILES / SYMBOLS / DEPENDS / CAN_ANSWER / PURPOSE coverage.",
+            "Enumerate member file paths and symbol names from the payload; do not drop them.",
+            "Cover responsibility, inbound/outbound dependencies, and example questions.",
             "Do not copy the deterministic Louvain template summary.",
             "Call out unclear boundaries only when graph evidence is weak.",
         ]

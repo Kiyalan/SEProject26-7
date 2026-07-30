@@ -126,7 +126,8 @@ public class LlmService {
         String system = "你是仓库助手 RepoPilot。根据参考资料直接回答用户问题。"
                 + "必须围绕用户问题的完整原文作答：先给结论，再列关键要点。"
                 + "只用资料中的事实；不确定就明确说不确定，不要编造。"
-                + "列出类/方法时，只能依据对应源码文件中真实出现的签名；禁止把单元测试方法名、社区摘要里的路由名当成业务 API。"
+                + "优先依据 GraphRAG 社区摘要理解模块边界，再依据源码/API 清单回答具体文件与方法。"
+                + "列出类/方法时，只能依据对应源码文件中真实出现的签名；禁止把单元测试方法名当成业务 API。"
                 + "用中文分段表述；不要使用 Markdown 加粗；不要复述资料编号、内部标签或系统实现细节。"
                 + briefIntentHint(intent);
         StringBuilder user = new StringBuilder();
@@ -169,7 +170,7 @@ public class LlmService {
             return "";
         }
         if (intent.contains("overview")) {
-            return "这是项目概览类问题：综合简介、文档与模块关系说明目的/结构/主链路；有源码/README 摘录时优先引用正文，不要把图社区名称当作答案主体。";
+            return "这是项目概览类问题：先用 GraphRAG 社区概括模块地图，再引用 README/关键源码说明目的与主链路；不要只堆社区名称而不解释。";
         }
         if (intent.contains("knowledge_status")) {
             return "这是知识库是否就绪的问题：直接给出是否已构建及简要规模。";
@@ -201,6 +202,27 @@ public class LlmService {
     }
 
     private String chatCompletion(String systemPrompt, String userPrompt, int maxTokens) {
+        List<Map<String, Object>> messages = List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userPrompt)
+        );
+        JsonNode response = chatCompletionRaw(messages, null, false, maxTokens);
+        String content = response.path("choices").path(0).path("message").path("content").asText("").trim();
+        if (content.isBlank()) {
+            LlmConfigService.LlmSettings llm = configService.current();
+            throw new IllegalStateException(
+                    "LLM 返回了空内容（模型: " + llm.model() + "）。请检查模型是否可用，或在设置中更换模型。");
+        }
+        return content;
+    }
+
+    /**
+     * Low-level chat/completions. When {@code tools} is non-null, requests tool calling.
+     * Returns the raw JSON response (caller reads message / tool_calls).
+     */
+    public JsonNode chatCompletionRaw(List<Map<String, Object>> messages,
+                                      com.fasterxml.jackson.databind.node.ArrayNode tools,
+                                      boolean enableTools, int maxTokens) {
         LlmConfigService.LlmSettings llm = configService.current();
         String apiKey = llm.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
@@ -208,12 +230,13 @@ public class LlmService {
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", llm.model());
-        body.put("messages", List.of(
-                Map.of("role", "system", "content", systemPrompt),
-                Map.of("role", "user", "content", userPrompt)
-        ));
+        body.put("messages", messages);
         body.put("temperature", 0.2);
-        body.put("max_tokens", maxTokens);
+        body.put("max_tokens", Math.max(256, maxTokens));
+        if (enableTools && tools != null && !tools.isEmpty()) {
+            body.put("tools", tools);
+            body.put("tool_choice", "auto");
+        }
 
         JsonNode response;
         try {
@@ -239,13 +262,10 @@ public class LlmService {
         if (response != null && response.hasNonNull("error")) {
             throw new IllegalStateException(formatLlmApiError(response.path("error"), llm.model()));
         }
-        String content = response == null ? ""
-                : response.path("choices").path(0).path("message").path("content").asText("").trim();
-        if (content.isBlank()) {
-            throw new IllegalStateException(
-                    "LLM 返回了空内容（模型: " + llm.model() + "）。请检查模型是否可用，或在设置中更换模型。");
+        if (response == null) {
+            throw new IllegalStateException("LLM 返回空响应（模型: " + llm.model() + "）");
         }
-        return content;
+        return response;
     }
 
     private static String formatLlmHttpError(int status, String body, String model) {

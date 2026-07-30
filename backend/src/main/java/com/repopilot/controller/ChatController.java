@@ -1,6 +1,7 @@
 package com.repopilot.controller;
 
 import com.repopilot.security.AuthSupport;
+import com.repopilot.service.ChatAgentService;
 import com.repopilot.service.KnowledgeQueryService;
 import com.repopilot.service.LlmService;
 import com.repopilot.service.RepoAuthorizationService;
@@ -21,13 +22,15 @@ import java.util.concurrent.Executors;
 public class ChatController {
 
     private final KnowledgeQueryService queryService;
+    private final ChatAgentService chatAgentService;
     private final LlmService llmService;
     private final RepoAuthorizationService authorizationService;
     private final ExecutorService chatExecutor = Executors.newCachedThreadPool();
 
-    public ChatController(KnowledgeQueryService queryService, LlmService llmService,
-                          RepoAuthorizationService authorizationService) {
+    public ChatController(KnowledgeQueryService queryService, ChatAgentService chatAgentService,
+                          LlmService llmService, RepoAuthorizationService authorizationService) {
         this.queryService = queryService;
+        this.chatAgentService = chatAgentService;
         this.llmService = llmService;
         this.authorizationService = authorizationService;
     }
@@ -51,7 +54,7 @@ public class ChatController {
         List<String> history = priorUserMessages(body);
         KnowledgeQueryService.QueryResult query =
                 queryService.retrieve(repoId, message, ownerLogin, token, history);
-        return llmService.chat(repoId, message, query.contexts(), query.intent(), history);
+        return chatAgentService.chat(repoId, ownerLogin, message, query.contexts(), query.intent(), history);
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -72,18 +75,16 @@ public class ChatController {
         }
         List<String> history = priorUserMessages(body);
 
-        // Return SSE immediately; retrieve used to block the HTTP thread before any event,
-        // which made the UI sit on "responding" with no feedback (often CodeWiki/LLM latency).
         SseEmitter emitter = new SseEmitter(300_000L);
         String questionType = KnowledgeUtils.classifyQuestion(message);
         chatExecutor.execute(() -> {
             try {
-                llmService.sendStatus(emitter, "正在检索相关资料…");
+                llmService.sendStatus(emitter, "正在检索社区与相关资料…");
                 KnowledgeQueryService.QueryResult query =
                         queryService.retrieve(repoId, message, ownerLogin, token, history);
-                llmService.sendStatus(emitter, "正在生成回答…");
-                llmService.streamInto(emitter, repoId, message, questionType, query.intent(),
-                        query.contexts(), history);
+                llmService.sendStatus(emitter, "正在结合社区与源码生成回答…");
+                chatAgentService.streamInto(emitter, repoId, ownerLogin, message, questionType,
+                        query.intent(), query.contexts(), history);
             } catch (Exception ex) {
                 try {
                     llmService.sendError(emitter, ex.getMessage() == null ? "问答失败" : ex.getMessage());
@@ -96,7 +97,6 @@ public class ChatController {
         return emitter;
     }
 
-    @SuppressWarnings("unchecked")
     private static List<String> priorUserMessages(Map<String, Object> body) {
         Object raw = body.get("history");
         if (!(raw instanceof List<?> list) || list.isEmpty()) {

@@ -21,8 +21,37 @@ class KnowledgeServiceApiExtractTest {
         assertThat(inventory).contains("callers(");
         assertThat(inventory).contains("retrieveChunks(");
         assertThat(inventory).contains("getOverview(");
+        assertThat(inventory).contains("toolListCommunities(");
         assertThat(inventory).doesNotContain("routesBranchQuestionsToBranchList");
         assertThat(inventory).containsPattern("共 \\d+ 个方法");
+    }
+
+    @Test
+    void extractsPythonDefsAndMethods() {
+        String source = """
+                class TinyQwenEngine:
+                    def __init__(self, model_name_or_path: str):
+                        pass
+                    def generate(self, prompt, messages, gen_config):
+                        return text
+                    def _hidden(self):
+                        pass
+
+                def parse_tool_calls(text: str):
+                    return []
+                """;
+        String inventory = KnowledgeService.extractPythonPublicApi("engine.py", source);
+        assertThat(inventory).contains("TinyQwenEngine");
+        assertThat(inventory).contains("TinyQwenEngine.generate(");
+        assertThat(inventory).contains("parse_tool_calls(");
+        assertThat(inventory).doesNotContain("_hidden");
+    }
+
+    @Test
+    void extractsPathsFromCommunitySummary() {
+        String text = "Key files include main.py and tiny_inference/engine.py (TinyQwenEngine). Also `tiny_inference/tools.py`.";
+        assertThat(KnowledgeService.extractPathsFromText(text))
+                .contains("main.py", "tiny_inference/engine.py", "tiny_inference/tools.py");
     }
 
     @Test

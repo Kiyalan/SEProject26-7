@@ -163,7 +163,7 @@ public class KnowledgeQueryService {
 
         contexts.removeIf(KnowledgeQueryService::isLowValueContext);
         int bound = intents.contains("history") || intents.contains("portfolio") || intents.contains("branches")
-                ? 60 : 45;
+                ? 60 : 55;
         List<Map<String, Object>> deduplicated = deduplicateAndBound(contexts, bound);
         return new QueryResult(String.join("+", intents), deduplicated);
     }
@@ -322,11 +322,19 @@ public class KnowledgeQueryService {
 
     private static int sourcePriority(Map<String, Object> row) {
         String type = String.valueOf(row.getOrDefault("sourceType", ""));
+        String retrieval = String.valueOf(row.getOrDefault("retrievalType", ""));
+        // Communities orient Q&A; concrete source/API still win when present.
+        if ("local_api".equals(retrieval)) {
+            return 110;
+        }
+        if ("local_file".equals(retrieval)) {
+            return 105;
+        }
         return switch (type) {
             case "source_code", "code" -> 100;
+            case "community" -> 85;
             case "repository_overview" -> 80;
-            case "graph_explore" -> 40;
-            case "community" -> 20;
+            case "graph_explore" -> 45;
             default -> 50;
         };
     }
