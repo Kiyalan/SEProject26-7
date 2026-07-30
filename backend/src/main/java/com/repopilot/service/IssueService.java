@@ -546,11 +546,14 @@ public class IssueService {
         addScore(typeScores, "bug_fix", keywordScore(text, 0.28,
                 "bug", "error", "exception", "stacktrace", "nullpointer", "crash", "报错", "失败", "崩溃", "regression", "npe"));
         addScore(typeScores, "feature_request", keywordScore(text, 0.26,
-                "feature request", "enhancement", "would be nice", "希望增加", "建议增加", "please add", "proposal"));
+                "feature request", "enhancement", "would be nice", "希望增加", "建议增加", "please add", "proposal",
+                "拓展", "优化", "改进", "增强"));
         addScore(typeScores, "usage_question", keywordScore(text, 0.24,
-                "how to", "how do i", "怎么用", "如何", "请问", "用法", "what is the difference"));
-        if (title.contains("?") || title.contains("？")) {
-            addScore(typeScores, "usage_question", 0.2);
+                "how to", "how do i", "怎么用", "如何", "请问", "用法", "what is the difference",
+                "干什么", "做什么", "是什么", "能否", "可以吗", "了解一下"));
+        if (title.contains("?") || title.contains("？")
+                || containsAny(text, "吗？", "呢？", "能干", "做什么", "如何", "怎么")) {
+            addScore(typeScores, "usage_question", 0.35);
         }
         addScore(typeScores, "documentation", keywordScore(text, 0.3,
                 "readme", "documentation", "docs", "typo", "拼写", "文档错误", "api doc", "javadoc"));
@@ -577,13 +580,20 @@ public class IssueService {
             addScore(typeScores, "insufficient_info", 1.05);
         }
 
-        // body completeness → insufficient_info if really thin
+        // body completeness → insufficient_info if really thin,
+        // but do NOT override clear questions / enhancement asks (short body is normal for those).
         int bodyLen = body.trim().length();
         boolean hasStack = containsAny(text, "exception", "at ", "caused by", "stack", "traceback");
-        if (bodyLen < 40 && !hasStack) {
-            addScore(typeScores, "insufficient_info", 0.55);
-        } else if (bodyLen < 80 && !hasStack && !containsAny(text, "steps", "复现", "expected", "actual")) {
-            addScore(typeScores, "insufficient_info", 0.28);
+        boolean looksLikeQuestion = title.contains("?") || title.contains("？")
+                || containsAny(text, "吗", "呢", "如何", "怎么", "干什么", "做什么", "能否", "请问",
+                "what is", "how to", "how do");
+        boolean looksLikeEnhancementAsk = containsAny(text, "拓展", "优化", "改进", "enhancement", "feature request", "希望增加");
+        if (!looksLikeQuestion && !looksLikeEnhancementAsk) {
+            if (bodyLen < 40 && !hasStack) {
+                addScore(typeScores, "insufficient_info", 0.55);
+            } else if (bodyLen < 80 && !hasStack && !containsAny(text, "steps", "复现", "expected", "actual")) {
+                addScore(typeScores, "insufficient_info", 0.28);
+            }
         }
 
         if (!milestone.isBlank() || !project.isBlank()) {

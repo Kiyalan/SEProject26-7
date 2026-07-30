@@ -94,52 +94,107 @@ public class LlmService {
     }
 
     public String generateAnswer(String question, String questionType, List<Map<String, Object>> contexts) {
-        return generateAnswer(question, questionType, contexts, "code");
+        return generateAnswer(question, questionType, contexts, "code", List.of());
     }
 
     public String generateAnswer(String question, String questionType,
                                  List<Map<String, Object>> contexts, String intent) {
+        return generateAnswer(question, questionType, contexts, intent, List.of());
+    }
+
+    public String generateAnswer(String question, String questionType,
+                                 List<Map<String, Object>> contexts, String intent,
+                                 List<String> priorUserMessages) {
         if (!configured() || contexts.isEmpty()) {
             return buildFallback(question, questionType, contexts);
         }
-        String contextText = contexts.stream()
-                .map(c -> "[" + c.getOrDefault("sourceType", "code") + " | "
-                        + c.get("file") + ":" + c.get("line") + "]\n" + c.get("content"))
-                .reduce((a, b) -> a + "\n\n" + b)
-                .orElse("");
-        String formatInstruction = "排版要求：用换行分段，便于阅读；禁止使用 Markdown 加粗（不要输出 **文字**）；"
-                + "需要强调时用两个空格或「」即可，不要用星号、井号标题。";
-        String statusInstruction = "若上下文含 knowledge_status 且 knowledgeBuilt=true，或含 community / graph_explore，"
-                + "必须明确回答「知识库已构建」；图社区与节点就是构建结果，不要因为没有「构建日志」就说未构建。";
-        String intentInstruction = intent.contains("knowledge_status")
-                ? "这是知识库状态问题：只依据 knowledge_status 中的 knowledgeBuilt / nodeCount / chunkCount 回答是否已构建，先给结论再列数字。"
-                : intent.contains("branches")
-                ? "这是分支问题：只准使用 branch_list 中的 aheadOfDefault/behindDefault/relation/littleUniqueContent 原数字，禁止改写或编造。"
-                        + "「最靠前」= ahead 最大；「几乎无独有提交」= ahead=0（littleUniqueContent=true），不要说成业务上「最没用」。"
-                        + "不要根据 tipMessage 臆测分支代码内容；CodeWiki 未索引非默认分支。"
-                : intent.contains("portfolio")
-                ? "这是多仓库问题：必须依据 portfolio 上下文列出具体仓库全名，区分「几乎没有内容/未索引」与「可能落后」。不要说无法判断，除非 portfolio 上下文缺失。"
-                : intent.contains("history")
-                ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；是否对当前 HEAD「过时」证据不足时标为无法判断，不要编造。"
-                : intent.contains("api")
-                ? "接口问题优先依据 graph_rag_answer / graph_explore / community / api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权；不要只列前端函数名。"
-                : intent.contains("deployment")
-                ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署；缺少 Docker 或生产文档时明确指出。"
-                : "优先使用 GraphRAG 上下文（graph_rag_answer、graph_explore、community、graph_nodes），依据社区摘要与图关系回答；不要依赖杂乱原始 chunk。";
-        String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。"
-                + formatInstruction + statusInstruction + intentInstruction;
-        String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
-                + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
-                + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
+        PromptPair prompts = buildAnswerPrompts(question, contexts, intent, priorUserMessages);
         try {
             int maxTokens = intent.contains("history") || intent.contains("api")
-                    || intent.contains("portfolio") || intent.contains("branches") ? 3000 : 1800;
-            return sanitizeAnswer(chatCompletion(systemPrompt, userPrompt, maxTokens));
+                    || intent.contains("portfolio") || intent.contains("branches")
+                    || intent.contains("overview") ? 3000 : 1800;
+            return sanitizeAnswer(chatCompletion(prompts.system(), prompts.user(), maxTokens));
         } catch (Exception ex) {
             return sanitizeAnswer(buildFallback(question, questionType, contexts, intent) + "\n\n（" + ex.getMessage() + "）");
         }
     }
+
+    /** Shared prompts for sync + streaming chat. Always includes the full original question. */
+    private PromptPair buildAnswerPrompts(String question, List<Map<String, Object>> contexts, String intent,
+                                          List<String> priorUserMessages) {
+        String contextText = formatContextsForPrompt(contexts);
+        String system = "你是仓库助手 RepoPilot。根据参考资料直接回答用户问题。"
+                + "必须围绕用户问题的完整原文作答：先给结论，再列关键要点。"
+                + "只用资料中的事实；不确定就明确说不确定，不要编造。"
+                + "列出类/方法时，只能依据对应源码文件中真实出现的签名；禁止把单元测试方法名、社区摘要里的路由名当成业务 API。"
+                + "用中文分段表述；不要使用 Markdown 加粗；不要复述资料编号、内部标签或系统实现细节。"
+                + briefIntentHint(intent);
+        StringBuilder user = new StringBuilder();
+        user.append("用户问题（完整原文）：\n").append(question).append("\n\n");
+        if (priorUserMessages != null && !priorUserMessages.isEmpty()) {
+            user.append("对话上文（仅用于理解「该类/它/上述」等指代）：\n");
+            int from = Math.max(0, priorUserMessages.size() - 3);
+            for (int i = from; i < priorUserMessages.size(); i++) {
+                user.append("- ").append(priorUserMessages.get(i)).append('\n');
+            }
+            user.append('\n');
+        }
+        user.append("参考资料：\n").append(contextText)
+                .append("\n\n请直接回答上面的用户问题，只输出答案正文。");
+        return new PromptPair(system, user.toString());
+    }
+
+    private static String formatContextsForPrompt(List<Map<String, Object>> contexts) {
+        StringBuilder sb = new StringBuilder();
+        int index = 1;
+        for (Map<String, Object> c : contexts) {
+            String label = String.valueOf(c.getOrDefault("file", "资料")).trim();
+            if (label.startsWith("codewiki/")) {
+                label = label.substring("codewiki/".length());
+            }
+            if (label.startsWith("knowledge/")) {
+                label = label.substring("knowledge/".length());
+            }
+            String content = String.valueOf(c.getOrDefault("content", "")).trim();
+            if (content.isBlank()) {
+                continue;
+            }
+            sb.append(index++).append(". ").append(label).append('\n').append(content).append("\n\n");
+        }
+        return sb.toString().trim();
+    }
+
+    private static String briefIntentHint(String intent) {
+        if (intent == null || intent.isBlank()) {
+            return "";
+        }
+        if (intent.contains("overview")) {
+            return "这是项目概览类问题：综合简介、文档与模块关系说明目的/结构/主链路；有源码/README 摘录时优先引用正文，不要把图社区名称当作答案主体。";
+        }
+        if (intent.contains("knowledge_status")) {
+            return "这是知识库是否就绪的问题：直接给出是否已构建及简要规模。";
+        }
+        if (intent.contains("branches")) {
+            return "这是分支问题：只用资料中的 ahead/behind 等对比数字，勿臆测未索引分支的代码内容。";
+        }
+        if (intent.contains("portfolio")) {
+            return "这是多仓库问题：列出具体仓库名，区分未索引与内容很少。";
+        }
+        if (intent.contains("history")) {
+            return "这是提交历史问题：逐条依据资料中的 commit；证据不足就标明无法判断。";
+        }
+        if (intent.contains("api")) {
+            return "这是接口问题：尽量给出方法、路径与用途；有控制器源码时依据源码。";
+        }
+        if (intent.contains("deployment")) {
+            return "这是启动/部署问题：依据实际配置与脚本，区分开发启动与生产部署。";
+        }
+        return "若资料含「公开 API 清单」或类源码正文，列方法时必须完整覆盖清单；"
+                + "禁止只根据其他类的调用点拼凑方法子集，也禁止把 *Test 方法当成业务 API。"
+                + "不得声称「无法查看源码」——若资料中已有源码/清单，直接据此作答。";
+    }
+
+    private record PromptPair(String system, String user) {}
 
     private String chatCompletion(String systemPrompt, String userPrompt) {
         return chatCompletion(systemPrompt, userPrompt, 1200);
@@ -265,11 +320,17 @@ public class LlmService {
     }
 
     public Map<String, Object> chat(String repoId, String message, List<Map<String, Object>> contexts) {
-        return chat(repoId, message, contexts, "code");
+        return chat(repoId, message, contexts, "code", List.of());
     }
 
     public Map<String, Object> chat(String repoId, String message,
                                     List<Map<String, Object>> contexts, String intent) {
+        return chat(repoId, message, contexts, intent, List.of());
+    }
+
+    public Map<String, Object> chat(String repoId, String message,
+                                    List<Map<String, Object>> contexts, String intent,
+                                    List<String> priorUserMessages) {
         String questionType = KnowledgeUtils.classifyQuestion(message);
         List<Map<String, Object>> citations = contexts.stream().limit(3)
                 .map(c -> Map.<String, Object>of("file", c.get("file"), "line", c.get("line")))
@@ -277,11 +338,10 @@ public class LlmService {
         boolean llmEnabled = configured() && !contexts.isEmpty();
         String answer;
         if (contexts.isEmpty()) {
-            answer = "未检索到可用知识库证据。请确认已构建 GraphRAG，或换一种问法后重试。"
-                    + "（检测到意图: " + intent + "）";
+            answer = "未检索到可用资料。请确认已构建知识库，或换一种问法后重试。";
         } else {
             answer = llmEnabled
-                    ? generateAnswer(message, questionType, contexts, intent)
+                    ? generateAnswer(message, questionType, contexts, intent, priorUserMessages)
                     : buildFallback(message, questionType, contexts, intent);
         }
         return Map.of(
@@ -298,7 +358,7 @@ public class LlmService {
         SseEmitter emitter = new SseEmitter(300_000L);
         streamExecutor.execute(() -> {
             try {
-                streamInto(emitter, repoId, message, questionType, intent, contexts);
+                streamInto(emitter, repoId, message, questionType, intent, contexts, List.of());
             } catch (Exception ex) {
                 try {
                     sendError(emitter, ex.getMessage());
@@ -325,6 +385,12 @@ public class LlmService {
     /** Drive an already-opened SSE emitter (retrieve may have run in caller). */
     public void streamInto(SseEmitter emitter, String repoId, String message, String questionType,
                            String intent, List<Map<String, Object>> contexts) throws Exception {
+        streamInto(emitter, repoId, message, questionType, intent, contexts, List.of());
+    }
+
+    public void streamInto(SseEmitter emitter, String repoId, String message, String questionType,
+                           String intent, List<Map<String, Object>> contexts,
+                           List<String> priorUserMessages) throws Exception {
         List<Map<String, Object>> citations = contexts.stream().limit(3)
                 .map(c -> Map.<String, Object>of("file", c.get("file"), "line", c.get("line")))
                 .toList();
@@ -332,7 +398,7 @@ public class LlmService {
 
         if (!llmEnabled || contexts.isEmpty()) {
             String fallback = contexts.isEmpty()
-                    ? "未检索到可用知识库证据。请确认已构建 GraphRAG，或换一种问法后重试。"
+                    ? "未检索到可用资料。请确认已构建知识库，或换一种问法后重试。"
                     : sanitizeAnswer(buildFallback(message, questionType, contexts, intent));
             emitter.send(SseEmitter.event()
                     .name("meta")
@@ -360,44 +426,15 @@ public class LlmService {
                         "llmEnabled", true,
                         "intent", intent
                 ))));
-        streamCompletion(emitter, message, questionType, contexts, intent);
+        streamCompletion(emitter, message, questionType, contexts, intent, priorUserMessages);
         emitter.complete();
     }
 
     private void streamCompletion(SseEmitter emitter, String question, String questionType,
-                                   List<Map<String, Object>> contexts, String intent) throws Exception {
+                                   List<Map<String, Object>> contexts, String intent,
+                                   List<String> priorUserMessages) throws Exception {
         LlmConfigService.LlmSettings llm = configService.current();
-        String contextText = contexts.stream()
-                .map(c -> "[" + c.getOrDefault("sourceType", "code") + " | "
-                        + c.get("file") + ":" + c.get("line") + "]\n" + c.get("content"))
-                .reduce((a, b) -> a + "\n\n" + b)
-                .orElse("");
-
-        String formatInstruction = "排版要求：用换行分段；禁止输出 Markdown 加粗（不要用 **文字**）；强调用两个空格或「」。";
-        String statusInstruction = "若上下文含 knowledge_status 且 knowledgeBuilt=true，或含 community / graph_explore，"
-                + "必须明确「知识库已构建」；图社区与节点就是构建结果。";
-        String intentInstruction = intent.contains("knowledge_status")
-                ? "这是知识库状态问题：只依据 knowledge_status 回答是否已构建，先结论再列数字。"
-                : intent.contains("branches")
-                ? "这是分支问题：只准使用 branch_list 中的 aheadOfDefault/behindDefault/relation/littleUniqueContent 原数字，禁止改写或编造。"
-                        + "「最靠前」= ahead 最大；ahead=0 只表示无独有提交，不要说成业务上「最没用」。"
-                        + "不要根据 tipMessage 臆测分支代码；CodeWiki 未索引非默认分支。"
-                : intent.contains("portfolio")
-                ? "这是多仓库问题：必须依据 portfolio 上下文列出具体仓库全名，区分「几乎没有内容/未索引」与「可能落后」。不要说无法判断，除非 portfolio 上下文缺失。"
-                : intent.contains("history")
-                ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；证据不足时标为无法判断。"
-                : intent.contains("api")
-                ? "接口问题优先依据 graph_rag_answer / graph_explore / community 上下文，列出 HTTP 方法、路径、用途和鉴权。"
-                : intent.contains("deployment")
-                ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署。"
-                : "优先使用 GraphRAG 上下文（graph_rag_answer、graph_explore、community、graph_nodes），依据社区摘要与图关系回答；不要依赖杂乱原始 chunk。";
-
-        String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径、符号名、社区名、分支名或 commit SHA。"
-                + formatInstruction + statusInstruction + intentInstruction;
-        String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
-                + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
-                + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
+        PromptPair prompts = buildAnswerPrompts(question, contexts, intent, priorUserMessages);
 
         String apiKey = llm.apiKey();
         String baseUrl = llm.baseUrl().replaceAll("/$", "");
@@ -406,8 +443,8 @@ public class LlmService {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", llm.model());
         body.put("messages", List.of(
-                Map.of("role", "system", "content", systemPrompt),
-                Map.of("role", "user", "content", userPrompt)
+                Map.of("role", "system", "content", prompts.system()),
+                Map.of("role", "user", "content", prompts.user())
         ));
         body.put("temperature", 0.2);
         body.put("max_tokens", 3000);

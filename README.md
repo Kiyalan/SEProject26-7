@@ -41,7 +41,7 @@ CODEWIKI_LLM__PROFILES__EMBEDDING__API_KEY=sk-...
 CODEWIKI_INCLUDE_EMBEDDINGS=true
 ```
 
-`CODEWIKI_INCLUDE_EMBEDDINGS` 默认 `false`。未配 embedding 时 GraphRAG 仍可用 AST 图 + 全文 + 图扩展。
+`CODEWIKI_INCLUDE_EMBEDDINGS` 默认 `true`（构建主体会走 embedding LLM）。若只想要 AST 图、不要向量，可设为 `false`。
 
 ### CodeWiki 构建稳定性（大仓库）
 
@@ -55,7 +55,8 @@ CODEWIKI_INCLUDE_EMBEDDINGS=true
 - 放宽 `docker-compose.yml` / Dockerfile 健康检查（60s 间隔、30s 超时、更长 start_period）
 - `services/codewiki/entrypoint.py` 启动时清理陈旧 `running` 任务，并附加大目录排除规则
 - 后端构建前检测僵尸 run，必要时删除并重新注册后全量分析
-- 默认 **关闭 embedding**（`CODEWIKI_INCLUDE_EMBEDDINGS=false`），避免扫文件后期被向量 API 拖死
+- 默认 **开启 embedding**（`CODEWIKI_INCLUDE_EMBEDDINGS=true`），构建会调用 embedding LLM；大仓库耗时与费用会明显上升，可临时设为 `false` 回退到纯图索引
+- 构建还会**同步**调用社区 LLM 命名（`/communities/name`）；失败则整次构建失败，不再静默跳过
 
 重新部署 CodeWiki：
 

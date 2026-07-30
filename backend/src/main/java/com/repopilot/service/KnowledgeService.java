@@ -1,14 +1,20 @@
 package com.repopilot.service;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -168,8 +174,12 @@ public class KnowledgeService {
                 }
             }
 
-            // Graph nodes without chunks ⇒ Q&A retrieve has nothing usable. Ensure GraphRAG build.
-            ensureGraphChunks(taskId, progressKey, TOTAL, codeWikiId);
+            // GraphRAG index + optional embedding LLM. Always refresh so incremental builds
+            // also pick up newly enabled embedding / chunk changes.
+            buildGraphRagWithLlm(taskId, progressKey, TOTAL, codeWikiId);
+
+            // Required LLM community naming/summaries (not optional skip).
+            nameCommunitiesWithLlm(taskId, progressKey, TOTAL, codeWikiId);
 
             // ── 阶段7: 索引项目元数据 (17→19) ──
             setTaskAndProgress(taskId, progressKey, 18, TOTAL, "indexing", "正在索引项目元数据");
@@ -224,7 +234,8 @@ public class KnowledgeService {
         result.put("chunkCount", value(index.getChunkCount()));
         Map<String, Object> lineStats = Map.of();
         try {
-            lineStats = RepoLineCountService.count(git.hostPath(repoId, ownerLogin(repoId)));
+            Path repoPath = resolveLocalRepoDir(repoId, ownerLogin, index);
+            lineStats = RepoLineCountService.count(repoPath);
         } catch (Exception ignored) {
             lineStats = Map.of("lineCount", 0, "sourceFileCount", 0, "lineCountByLanguage", Map.of());
         }
@@ -322,18 +333,33 @@ public class KnowledgeService {
     }
 
     public Map<String, Object> repositoryOverviewContext(String repoId, String ownerLogin) {
-        List<Map<String, Object>> evidence = retrieveChunks(repoId, ownerLogin,
-                "repository overview architecture modules purpose README", null, 8);
-        if (!evidence.isEmpty()) return evidence.getFirst();
         Map<String, Object> overview = getOverview(repoId, ownerLogin, null);
-        return evidence("knowledge/repository-overview", "repository_overview",
-                "仓库: " + overview.getOrDefault("fullName", "")
-                        + "\n摘要: " + overview.getOrDefault("summary", "")
-                        + "\nfileCount: " + overview.getOrDefault("fileCount", 0)
-                        + "\nchunkCount: " + overview.getOrDefault("chunkCount", 0)
-                        + "\nlineCount: " + overview.getOrDefault("lineCount", 0)
-                        + "\nsourceFileCount: " + overview.getOrDefault("sourceFileCount", 0)
-                        + "\nlineCountNote: " + overview.getOrDefault("lineCountNote", ""));
+        String summary = String.valueOf(overview.getOrDefault("summary", "")).trim();
+        StringBuilder content = new StringBuilder();
+        content.append("仓库：").append(overview.getOrDefault("fullName", repoId)).append('\n');
+        if (!summary.isBlank() && !"null".equalsIgnoreCase(summary)) {
+            content.append("简介：").append(summary).append('\n');
+        }
+        content.append("源文件约 ").append(overview.getOrDefault("sourceFileCount",
+                        overview.getOrDefault("fileCount", 0)))
+                .append(" 个，代码行约 ").append(overview.getOrDefault("lineCount", 0)).append(" 行。");
+        // Prefer a README / docs chunk when GraphRAG retrieve has one — append as extra signal.
+        try {
+            List<Map<String, Object>> evidence = retrieveChunks(repoId, ownerLogin,
+                    "repository overview architecture modules purpose README", null, 3);
+            for (Map<String, Object> row : evidence) {
+                String body = String.valueOf(row.getOrDefault("content", "")).trim();
+                if (body.length() < 40) {
+                    continue;
+                }
+                content.append("\n\n文档摘录（").append(row.getOrDefault("file", "readme")).append("）：\n");
+                content.append(body.length() > 2500 ? body.substring(0, 2500) + "…" : body);
+                break;
+            }
+        } catch (Exception ignored) {
+            // overview metadata alone is still useful
+        }
+        return evidence("仓库概览", "repository_overview", content.toString());
     }
 
     /**
@@ -354,21 +380,14 @@ public class KnowledgeService {
         int communities = numberOrZero(graph.get("communityCount"));
         boolean built = "ready".equals(status) && (nodes > 0 || chunks > 0 || files > 0);
         String verdict = built
-                ? "knowledgeBuilt=true。知识库已构建完成。图节点/社区/边即 GraphRAG 构建结果，不是「未构建」。"
-                : "knowledgeBuilt=false。知识库尚未就绪（status=" + status
-                + "，nodes=" + nodes + "，chunks=" + chunks + "）。请先在知识库页点击构建。";
+                ? "知识库已构建完成。"
+                : "知识库尚未就绪（状态=" + status + "）。请先在知识库页点击构建。";
         String content = verdict
-                + "\nrepo=" + overview.getOrDefault("fullName", repoId)
-                + "\nstatus=" + status
-                + "\nindexedAt=" + overview.getOrDefault("indexedAt", "")
-                + "\nfileCount=" + files
-                + "\nchunkCount=" + chunks
-                + "\ngraphNodeCount=" + nodes
-                + "\ngraphEdgeCount=" + edges
-                + "\ncommunityCount=" + communities
-                + "\n说明: 检索到的 community / graph_explore 内容本身就证明知识库已构建；"
-                + "不要因为上下文里没有「构建日志」字样就判断为未构建。";
-        Map<String, Object> row = evidence("knowledge/status", "knowledge_status", content);
+                + "\n仓库：" + overview.getOrDefault("fullName", repoId)
+                + "\n索引时间：" + overview.getOrDefault("indexedAt", "")
+                + "\n文件约 " + files + " 个，索引块 " + chunks
+                + "，图节点 " + nodes + "，边 " + edges + "，社区 " + communities + "。";
+        Map<String, Object> row = evidence("知识库状态", "knowledge_status", content);
         row.put("score", 200);
         row.put("retrievalType", "structured");
         row.put("built", built);
@@ -413,16 +432,76 @@ public class KnowledgeService {
     }
 
     /**
-     * Chat retrieval grounded in GraphRAG structure: graph explore text and community
-     * summaries. CodeWiki /ask is intentionally skipped here — it runs a second LLM and
-     * blocked the chat SSE for minutes with no UI feedback.
+     * Chat retrieval: real source chunks first (so Q&A can answer concrete code questions),
+     * then graph explore + community summaries for structure. Skips CodeWiki /ask (second LLM).
      */
     public List<Map<String, Object>> graphRagContexts(String repoId, String ownerLogin, String question, int limit) {
         RepoIndex index = requireReadyIndex(repoId);
         String codeWikiId = index.getCodeWikiRepoId();
         List<Map<String, Object>> contexts = new ArrayList<>();
-        int bound = Math.min(Math.max(limit, 4), 24);
+        int bound = Math.min(Math.max(limit, 8), 28);
+        Set<String> seenFiles = new LinkedHashSet<>();
 
+        // 2) Local clone: named types/files — do this early and with high priority so
+        //    call-site chunks cannot crowd out the actual class source.
+        try {
+            List<Map<String, Object>> local = localSourceFallbacks(repoId, ownerLogin, index, question, seenFiles, 6);
+            contexts.addAll(0, local);
+        } catch (Exception ignored) {
+            // optional
+        }
+
+        // 1) GraphRAG retrieve → actual source text (FTS / symbol / optional vectors)
+        try {
+            JsonNode retrieve = codeWiki.retrieve(codeWikiId, question, 2);
+            List<Map<String, Object>> chunks = evidenceRows(retrieve, Math.min(bound, 14), "source_code");
+            Set<String> focusFiles = focusedSourceFiles(contexts);
+            for (Map<String, Object> chunk : chunks) {
+                String content = String.valueOf(chunk.getOrDefault("content", "")).trim();
+                if (content.isBlank()) {
+                    continue;
+                }
+                String file = normalizeRepoPath(String.valueOf(chunk.getOrDefault("file", "")));
+                // When user asked about a specific class file, drop unrelated call-site scraps.
+                if (!focusFiles.isEmpty() && !file.isBlank()) {
+                    String base = Path.of(file).getFileName().toString();
+                    boolean keepsFocus = focusFiles.stream().anyMatch(f -> {
+                        String focusBase = Path.of(f).getFileName().toString();
+                        return focusBase.equalsIgnoreCase(base) || file.equalsIgnoreCase(f)
+                                || file.endsWith("/" + focusBase);
+                    });
+                    if (!keepsFocus) {
+                        continue;
+                    }
+                }
+                if (content.length() > 6000) {
+                    chunk.put("content", content.substring(0, 6000) + "\n…(truncated)");
+                }
+                chunk.put("score", Math.max(asDouble(chunk.get("score")), 50) + 20);
+                contexts.add(chunk);
+                if (!file.isBlank()) {
+                    seenFiles.add(file);
+                }
+            }
+            JsonNode pack = retrieve.path("context_pack");
+            if (pack.isObject()) {
+                String packText = firstText(pack, "text", "content", "markdown");
+                if (!packText.isBlank() && packText.length() > 80 && focusFiles.isEmpty()) {
+                    Map<String, Object> row = evidence("codewiki/context-pack", "source_code",
+                            packText.length() > 8000 ? packText.substring(0, 8000) + "\n…(truncated)" : packText);
+                    row.put("score", 70);
+                    row.put("retrievalType", "graph");
+                    contexts.add(row);
+                }
+            }
+        } catch (Exception ex) {
+            Map<String, Object> notice = evidence("codewiki/graphrag-retrieve", "system",
+                    "源码片段检索暂不可用: " + rootMessage(ex));
+            notice.put("score", 8);
+            contexts.add(notice);
+        }
+
+        // 3) Graph explore / relationships — structural hints, not a substitute for source text
         try {
             JsonNode explore = codeWiki.explore(codeWikiId, mapper.valueToTree(Map.of(
                     "query", question,
@@ -432,24 +511,13 @@ public class KnowledgeService {
             String exploreText = explore.path("text").asText("");
             if (!exploreText.isBlank()) {
                 Map<String, Object> row = evidence("codewiki/graph-explore", "graph_explore",
-                        exploreText.length() > 12000 ? exploreText.substring(0, 12000) + "\n…(truncated)" : exploreText);
-                row.put("score", 98);
+                        exploreText.length() > 8000 ? exploreText.substring(0, 8000) + "\n…(truncated)" : exploreText);
+                row.put("score", 70);
                 row.put("retrievalType", "graph");
                 contexts.add(row);
             }
-            JsonNode relationships = explore.path("relationships");
-            if (relationships.isArray() && !relationships.isEmpty()) {
-                StringBuilder rel = new StringBuilder("Graph relationships:\n");
-                int n = 0;
-                for (JsonNode edge : relationships) {
-                    rel.append("- ").append(edge.toString()).append('\n');
-                    if (++n >= 40) break;
-                }
-                Map<String, Object> row = evidence("codewiki/graph-relationships", "graph_relationships", rel.toString());
-                row.put("score", 90);
-                row.put("retrievalType", "graph");
-                contexts.add(row);
-            }
+            // If retrieve missed content, try reading files mentioned by explore seeds.
+            contexts.addAll(localFilesFromExplore(repoId, ownerLogin, index, explore, seenFiles, 3));
         } catch (Exception ex) {
             Map<String, Object> notice = evidence("codewiki/graph-explore", "system",
                     "图探索暂不可用: " + rootMessage(ex));
@@ -458,17 +526,368 @@ public class KnowledgeService {
         }
 
         try {
-            // Prefer communities + explore. Skip CodeWiki /ask by default: it runs a second LLM
-            // and often blocks the chat UI for minutes before the first SSE event.
-            contexts.addAll(communityContexts(codeWikiId, question, 8));
+            boolean hasLocalApi = contexts.stream()
+                    .anyMatch(c -> "local_api".equals(c.get("retrievalType"))
+                            || "local_file".equals(c.get("retrievalType")));
+            // Communities are coarse Louvain clusters — useful for orientation, not for listing class methods.
+            contexts.addAll(communityContexts(codeWikiId, question, hasLocalApi ? 2 : 6));
         } catch (Exception ignored) {
             // optional
         }
 
+        contexts.sort((a, b) -> Double.compare(asDouble(b.get("score")), asDouble(a.get("score"))));
         if (contexts.isEmpty()) {
             throw new IllegalStateException("GraphRAG 检索未返回可用图上下文，请确认知识库已构建且 CodeWiki 健康");
         }
-        return contexts.size() > bound ? contexts.subList(0, bound) : contexts;
+        int effectiveBound = contexts.stream().anyMatch(c -> "local_api".equals(c.get("retrievalType")))
+                ? Math.max(bound, 20) : bound;
+        return contexts.size() > effectiveBound ? contexts.subList(0, effectiveBound) : contexts;
+    }
+
+    /** Read named docs/sources from the local clone when GraphRAG chunks are thin. */
+    private List<Map<String, Object>> localSourceFallbacks(
+            String repoId, String ownerLogin, RepoIndex index, String question,
+            Set<String> seenFiles, int limit) {
+        Path root = resolveLocalRepoDir(repoId, ownerLogin, index);
+        if (root == null || !Files.isDirectory(root)) {
+            return List.of();
+        }
+        List<String> candidates = new ArrayList<>();
+        String q = question == null ? "" : question;
+        String lower = q.toLowerCase();
+        boolean wantsApiInventory = containsAnyCi(lower,
+                "哪些方法", "所有方法", "包含哪些", "有哪些方法", "方法列表", "原代码", "源代码",
+                "源码", "全部方法", "public", "做什么", "在做什么", "职责");
+        if (lower.contains("readme")) {
+            candidates.addAll(List.of("README.md", "README", "readme.md", "Readme.md"));
+        }
+        Matcher pathToken = Pattern.compile(
+                "([\\w./\\\\-]+\\.(?:java|ts|tsx|js|jsx|py|go|rs|md|yml|yaml|xml|json|ps1))",
+                Pattern.CASE_INSENSITIVE).matcher(q);
+        while (pathToken.find()) {
+            candidates.add(pathToken.group(1).replace('\\', '/'));
+        }
+        Matcher typeToken = Pattern.compile(
+                "\\b([A-Za-z][A-Za-z0-9]*(?:Service|Controller|Client|Utils|Store|Manager|Handler|Repository|Config|Namer|Gateway))\\b"
+                        + "|\\b([A-Z][a-zA-Z0-9]{2,})\\b").matcher(q);
+        while (typeToken.find()) {
+            String type = typeToken.group(1) != null ? typeToken.group(1) : typeToken.group(2);
+            if (type == null || isNoiseTypeName(type)) {
+                continue;
+            }
+            String javaName = guessJavaTypeName(type);
+            candidates.add(javaName + ".java");
+            candidates.add(type + ".java");
+            candidates.add(javaName + ".ts");
+            candidates.add(javaName + ".tsx");
+        }
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String rel : candidates) {
+            if (out.size() >= limit) {
+                break;
+            }
+            String norm = normalizeRepoPath(rel);
+            if (seenFiles.contains(norm) || norm.contains("..")) {
+                continue;
+            }
+            String baseName = Path.of(rel).getFileName().toString();
+            Path file = root.resolve(rel).normalize();
+            boolean exactPath = file.startsWith(root.normalize()) && Files.isRegularFile(file);
+            if (!exactPath) {
+                file = findTypeSourceFile(root, baseName, 8000);
+                if (file == null) {
+                    continue;
+                }
+                norm = normalizeRepoPath(root.relativize(file).toString());
+            }
+            if (seenFiles.contains(norm)) {
+                continue;
+            }
+            boolean isTestPath = norm.contains("/test/") || norm.contains("\\test\\")
+                    || baseName.endsWith("Test.java") || baseName.endsWith("Tests.java")
+                    || baseName.endsWith(".test.ts") || baseName.endsWith(".spec.ts");
+            if (isTestPath && !lower.contains("test") && !lower.contains("单元测试")) {
+                continue;
+            }
+
+            String fullText = readSourceFileCapped(file, 400_000);
+            if (fullText.isBlank()) {
+                continue;
+            }
+            String symbol = baseName.contains(".") ? baseName.substring(0, baseName.lastIndexOf('.')) : baseName;
+
+            if (baseName.endsWith(".java")) {
+                String inventory = extractJavaPublicApi(symbol, fullText);
+                if (!inventory.isBlank()) {
+                    Map<String, Object> api = evidence(norm + "#api", "source_code", inventory);
+                    api.put("score", 200);
+                    api.put("retrievalType", "local_api");
+                    api.put("symbolName", symbol);
+                    api.put("line", 1);
+                    out.add(api);
+                }
+            }
+
+            int cap = wantsApiInventory ? 100_000 : (baseName.endsWith(".java") ? 60_000 : 8000);
+            String body = fullText.length() > cap ? fullText.substring(0, cap) + "\n…(truncated)" : fullText;
+            Map<String, Object> row = evidence(norm, "source_code", body);
+            row.put("score", isTestPath ? 85 : 160);
+            row.put("retrievalType", "local_file");
+            row.put("symbolName", symbol);
+            row.put("line", 1);
+            out.add(row);
+            seenFiles.add(norm);
+            seenFiles.add(norm + "#api");
+        }
+        return out;
+    }
+
+    private static Set<String> focusedSourceFiles(List<Map<String, Object>> contexts) {
+        Set<String> focus = new LinkedHashSet<>();
+        for (Map<String, Object> row : contexts) {
+            if (!"local_file".equals(String.valueOf(row.get("retrievalType")))
+                    && !"local_api".equals(String.valueOf(row.get("retrievalType")))) {
+                continue;
+            }
+            String file = normalizeRepoPath(String.valueOf(row.getOrDefault("file", "")));
+            if (file.endsWith("#api")) {
+                file = file.substring(0, file.length() - 4);
+            }
+            if (!file.isBlank()) {
+                focus.add(file);
+            }
+        }
+        return focus;
+    }
+
+    private static String guessJavaTypeName(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return raw;
+        }
+        if (Character.isUpperCase(raw.charAt(0))) {
+            return raw;
+        }
+        String lower = raw.toLowerCase();
+        for (String suffix : List.of("service", "controller", "client", "utils", "store",
+                "manager", "handler", "repository", "config", "namer", "gateway")) {
+            if (lower.endsWith(suffix) && lower.length() > suffix.length()) {
+                String head = raw.substring(0, raw.length() - suffix.length());
+                return Character.toUpperCase(head.charAt(0)) + head.substring(1)
+                        + Character.toUpperCase(suffix.charAt(0)) + suffix.substring(1);
+            }
+        }
+        return Character.toUpperCase(raw.charAt(0)) + raw.substring(1);
+    }
+
+    /** Extract constructors + methods so Q&A can list APIs even when the file is huge. */
+    static String extractJavaPublicApi(String typeName, String source) {
+        if (source == null || source.isBlank()) {
+            return "";
+        }
+        List<String> methods = new ArrayList<>();
+        Pattern method = Pattern.compile(
+                "(?m)^[ \\t]*public[ \\t][\\w.<>,\\[\\]?\\s]+[ \\t]+([A-Za-z_][A-Za-z0-9_]*)[ \\t]*\\(([^;{}]*)\\)[ \\t]*(?:throws[ \\t][^;{]+)?[ \\t]*\\{?");
+        Matcher m = method.matcher(source);
+        while (m.find()) {
+            String name = m.group(1);
+            if (name == null || name.equals(typeName) || name.equals("class") || name.equals("interface")
+                    || name.equals("enum") || name.equals("record")) {
+                continue;
+            }
+            String args = m.group(2) == null ? "" : m.group(2).replaceAll("\\s+", " ").trim();
+            String sig = name + "(" + args + ")";
+            if (!methods.contains(sig)) {
+                methods.add(sig);
+            }
+        }
+        Pattern ctor = Pattern.compile(
+                "(?m)^[ \\t]*public[ \\t]+" + Pattern.quote(typeName) + "[ \\t]*\\(([^;{}]*)\\)");
+        Matcher c = ctor.matcher(source);
+        List<String> ctors = new ArrayList<>();
+        while (c.find()) {
+            String args = c.group(1) == null ? "" : c.group(1).replaceAll("\\s+", " ").trim();
+            String sig = typeName + "(" + args + ")";
+            if (!ctors.contains(sig)) {
+                ctors.add(sig);
+            }
+        }
+        if (methods.isEmpty() && ctors.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("类 ").append(typeName).append(" 的公开 API 清单（从源码抽取，完整）：\n");
+        if (!ctors.isEmpty()) {
+            sb.append("构造方法：\n");
+            for (String sig : ctors) {
+                sb.append("- ").append(sig).append('\n');
+            }
+        }
+        sb.append("方法：\n");
+        for (String sig : methods) {
+            sb.append("- ").append(sig).append('\n');
+        }
+        sb.append("共 ").append(methods.size()).append(" 个方法。回答「有哪些方法」时必须覆盖此清单，不得只列举被其他类调用到的子集。");
+        return sb.toString();
+    }
+
+    private static boolean containsAnyCi(String value, String... terms) {
+        for (String term : terms) {
+            if (value.contains(term)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isNoiseTypeName(String type) {
+        return Set.of(
+                "README", "HTTP", "HTTPS", "API", "JWT", "FAQ", "LLM", "SSE", "JSON", "XML", "SQL",
+                "URL", "URI", "UUID", "DTO", "DAO", "REST", "GraphRAG", "CodeWiki", "RepoPilot",
+                "What", "Where", "How", "Why", "Java", "Spring", "React", "Docker", "Postgres",
+                "OpenAPI", "GitHub", "True", "False", "Null", "Main", "App", "Config"
+        ).contains(type);
+    }
+
+    /** Prefer src/main (or non-test) hits for a basename like KnowledgeService.java. */
+    private static Path findTypeSourceFile(Path root, String fileName, int maxVisited) {
+        if (fileName == null || fileName.isBlank() || fileName.contains("..")) {
+            return null;
+        }
+        Path mainHit = null;
+        Path otherHit = null;
+        Path testHit = null;
+        try (var stream = Files.walk(root, 14)) {
+            int visited = 0;
+            for (Path p : (Iterable<Path>) stream::iterator) {
+                if (!Files.isRegularFile(p)) {
+                    continue;
+                }
+                if (++visited > maxVisited) {
+                    break;
+                }
+                if (!fileName.equalsIgnoreCase(p.getFileName().toString())) {
+                    continue;
+                }
+                String path = p.toString().replace('\\', '/').toLowerCase();
+                boolean test = path.contains("/test/") || path.contains("/tests/")
+                        || fileName.toLowerCase().contains("test");
+                if (path.contains("/main/") && !test) {
+                    mainHit = p;
+                    break;
+                }
+                if (test) {
+                    if (testHit == null) {
+                        testHit = p;
+                    }
+                } else if (otherHit == null) {
+                    otherHit = p;
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        if (mainHit != null) {
+            return mainHit;
+        }
+        if (otherHit != null) {
+            return otherHit;
+        }
+        return testHit;
+    }
+
+    private List<Map<String, Object>> localFilesFromExplore(
+            String repoId, String ownerLogin, RepoIndex index, JsonNode explore,
+            Set<String> seenFiles, int limit) {
+        Path root = resolveLocalRepoDir(repoId, ownerLogin, index);
+        if (root == null || !Files.isDirectory(root) || explore == null) {
+            return List.of();
+        }
+        List<String> paths = new ArrayList<>();
+        for (String field : List.of("files", "seed_nodes", "nodes", "results")) {
+            JsonNode arr = explore.path(field);
+            if (!arr.isArray()) {
+                continue;
+            }
+            for (JsonNode node : arr) {
+                String path = firstText(node, "file_path", "path", "file");
+                if (!path.isBlank()) {
+                    paths.add(path.replace('\\', '/'));
+                }
+            }
+        }
+        // Also scrape paths from explore text
+        Matcher m = Pattern.compile(
+                "([\\w./\\\\-]+\\.(?:java|ts|tsx|js|jsx|py|go|rs|md|yml|yaml))",
+                Pattern.CASE_INSENSITIVE).matcher(explore.path("text").asText(""));
+        while (m.find() && paths.size() < 20) {
+            paths.add(m.group(1).replace('\\', '/'));
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String rel : paths) {
+            if (out.size() >= limit) {
+                break;
+            }
+            String norm = normalizeRepoPath(rel);
+            if (seenFiles.contains(norm) || norm.contains("..")) {
+                continue;
+            }
+            Path file = root.resolve(rel).normalize();
+            if (!file.startsWith(root.normalize()) || !Files.isRegularFile(file)) {
+                Path found = findFileByName(root, Path.of(rel).getFileName().toString(), 4000);
+                if (found == null) {
+                    continue;
+                }
+                file = found;
+                norm = normalizeRepoPath(root.relativize(found).toString());
+            }
+            String body = readSourceFileCapped(file, 8000);
+            if (body.isBlank()) {
+                continue;
+            }
+            Map<String, Object> row = evidence(norm, "source_code", body);
+            row.put("score", 88);
+            row.put("retrievalType", "local_file");
+            row.put("line", 1);
+            out.add(row);
+            seenFiles.add(norm);
+        }
+        return out;
+    }
+
+    private static Path findFileByName(Path root, String fileName, int maxVisited) {
+        return findTypeSourceFile(root, fileName, maxVisited);
+    }
+
+    private static String readSourceFileCapped(Path file, int maxChars) {
+        try {
+            long size = Files.size(file);
+            if (size <= 0 || size > 512_000) {
+                return "";
+            }
+            String body = Files.readString(file);
+            if (body.length() > maxChars) {
+                return body.substring(0, maxChars) + "\n…(truncated)";
+            }
+            return body;
+        } catch (Exception ex) {
+            return "";
+        }
+    }
+
+    private static String normalizeRepoPath(String path) {
+        return path == null ? "" : path.replace('\\', '/').replaceAll("^\\./", "");
+    }
+
+    private static double asDouble(Object value) {
+        if (value instanceof Number n) {
+            return n.doubleValue();
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (Exception ignored) {
+            return 0;
+        }
     }
 
     public List<Map<String, Object>> listCommunities(String repoId, String ownerLogin) {
@@ -783,10 +1202,7 @@ public class KnowledgeService {
             }
             throw ex;
         }
-        setTaskAndProgress(taskId, progressKey, 15, total, "graphrag",
-                "正在构建 GraphRAG 知识图谱（默认关闭 embedding）");
-        codeWiki.buildGraph(codeWikiId);
-        setTaskAndProgress(taskId, progressKey, 17, total, "graphrag", "GraphRAG 知识图谱构建完成");
+        // GraphRAG + LLM embedding / community naming happen in the shared post-analyze stages.
     }
 
     private static boolean isWorkerLostAfterRestart(Throwable ex) {
@@ -853,24 +1269,65 @@ public class KnowledgeService {
         }
     }
 
-    /** If graph has nodes but no chunks, run GraphRAG build so Q&A retrieve can work. */
-    private void ensureGraphChunks(String taskId, String progressKey, int total, String codeWikiId) {
-        try {
-            JsonNode status = codeWiki.graphStatus(codeWikiId);
-            int chunks = firstInt(status, "chunk_count", "chunks");
-            int nodes = firstInt(status, "node_count", "nodes");
-            if (chunks > 0 || nodes <= 0) {
-                return;
-            }
-            setTaskAndProgress(taskId, progressKey, 15, total, "graphrag",
-                    "图谱有节点但无检索片段，正在补建 GraphRAG");
-            codeWiki.buildGraph(codeWikiId);
-            setTaskAndProgress(taskId, progressKey, 17, total, "graphrag", "GraphRAG 补建完成");
-        } catch (Exception ex) {
-            // Keep going — projectIndex will still persist whatever counts are available.
-            setTaskAndProgress(taskId, progressKey, 17, total, "graphrag",
-                    "GraphRAG 补建失败: " + rootMessage(ex));
+    /**
+     * Always (re)build GraphRAG chunks; when embeddings are enabled this is an LLM step
+     * and must produce vectors for non-empty chunk sets.
+     */
+    private void buildGraphRagWithLlm(String taskId, String progressKey, int total, String codeWikiId) {
+        boolean withEmbed = codeWiki.includeEmbeddings();
+        setTaskAndProgress(taskId, progressKey, 15, total, "graphrag",
+                withEmbed ? "正在用 LLM 生成 GraphRAG embedding 索引" : "正在构建 GraphRAG 检索片段");
+        JsonNode built = codeWiki.buildGraph(codeWikiId);
+        assertGraphRagBuildOk(built);
+        int chunks = built.path("chunk_count").asInt(0);
+        int embeddings = built.path("embedding_count").asInt(0);
+        setTaskAndProgress(taskId, progressKey, 16, total, "graphrag",
+                withEmbed
+                        ? "GraphRAG 完成：chunks=" + chunks + "，embeddings=" + embeddings
+                        : "GraphRAG 完成：chunks=" + chunks);
+    }
+
+    private void assertGraphRagBuildOk(JsonNode built) {
+        if (built == null) {
+            throw new IllegalStateException("GraphRAG 构建无响应");
         }
+        String status = built.path("status").asText("");
+        if ("empty_graph".equals(status)) {
+            throw new IllegalStateException("图谱为空，无法构建 GraphRAG，请先完成源码分析");
+        }
+        if (!codeWiki.includeEmbeddings()) {
+            return;
+        }
+        int chunks = built.path("chunk_count").asInt(0);
+        int embeddings = built.path("embedding_count").asInt(0);
+        if (chunks > 0 && embeddings <= 0) {
+            throw new IllegalStateException(
+                    "已开启 LLM embedding，但未生成任何向量（chunks=" + chunks
+                            + "）。请检查根目录 .env 中 CODEWIKI_LLM__PROFILES__EMBEDDING__* 配置后重试");
+        }
+    }
+
+    /** Synchronous CommunityNamer — required LLM stage of the knowledge build. */
+    private void nameCommunitiesWithLlm(String taskId, String progressKey, int total, String codeWikiId) {
+        setTaskAndProgress(taskId, progressKey, 17, total, "communities",
+                "正在用 LLM 生成社区名称与摘要（构建必做）");
+        JsonNode naming = codeWiki.nameCommunities(codeWikiId, 150);
+        String status = naming == null ? "" : naming.path("status").asText("");
+        int renamed = naming == null ? 0 : naming.path("renamed_count").asInt(0);
+        int communityCount = naming == null ? 0 : naming.path("community_count").asInt(0);
+        if ("no_communities".equals(status)) {
+            setTaskAndProgress(taskId, progressKey, 17, total, "communities",
+                    "图谱尚无社区可命名（community_count=0）");
+            return;
+        }
+        if (!"renamed".equals(status) && !"partial".equals(status)) {
+            throw new IllegalStateException(
+                    "社区 LLM 命名失败：status=" + status
+                            + "。请检查 CODEWIKI_LLM__DEFAULT__*（聊天模型）配置");
+        }
+        setTaskAndProgress(taskId, progressKey, 17, total, "communities",
+                "社区 LLM 摘要完成：renamed=" + renamed + " / communities=" + communityCount
+                        + ("partial".equals(status) ? "（部分批次有告警）" : ""));
     }
 
     /**
@@ -948,6 +1405,25 @@ public class KnowledgeService {
             }
         }
         return "";
+    }
+
+    /** All CodeWiki repo ids that match this GitHub fullName or local repoId path suffix. */
+    private List<String> findAllRegisteredRepoIds(String fullName, String repoId) {
+        JsonNode rows = repoRows();
+        if (rows == null) return List.of();
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        String suffix = repoId == null || repoId.isBlank() ? "" : "/" + repoId;
+        for (JsonNode row : rows) {
+            String name = row.path("name").asText("");
+            String rowPath = row.path("path").asText("");
+            String id = row.path("id").asText(row.path("repo_id").asText(""));
+            if (id.isBlank()) continue;
+            if ((!fullName.isBlank() && fullName.equals(name))
+                    || (!suffix.isBlank() && (rowPath.endsWith(suffix) || rowPath.endsWith(repoId)))) {
+                ids.add(id);
+            }
+        }
+        return new ArrayList<>(ids);
     }
 
     private String findRegisteredRepoByLocalRepoId(String repoId) {
@@ -1209,28 +1685,31 @@ public class KnowledgeService {
         String codeWikiId = index.getCodeWikiRepoId() == null ? "" : index.getCodeWikiRepoId().trim();
         boolean codeWikiDeleted = false;
         String codeWikiWarning = "";
+        String fullName = safe(index.getFullName());
 
         // 1) Delete remote CodeWiki repo (graph / chunks / wiki). Without this,
         //    rebuild would reuse stale graph and look like "reset did nothing".
+        //    Also delete any CodeWiki entry matching the same fullName (stale id / rematch).
+        LinkedHashSet<String> deleteIds = new LinkedHashSet<>();
         if (!codeWikiId.isBlank()) {
+            deleteIds.add(codeWikiId);
+        }
+        try {
+            for (String matched : findAllRegisteredRepoIds(fullName, repoId)) {
+                if (!matched.isBlank()) {
+                    deleteIds.add(matched);
+                }
+            }
+        } catch (Exception ignored) {
+            // listing optional when CodeWiki is down
+        }
+        for (String id : deleteIds) {
             try {
-                codeWiki.deleteRepo(codeWikiId);
+                codeWiki.deleteRepo(id);
                 codeWikiDeleted = true;
             } catch (Exception ex) {
-                codeWikiWarning = rootMessage(ex);
-                // Also try path-based rematch in case local id is stale.
-                try {
-                    String remapped = findRegisteredRepo(safe(index.getFullName()), "");
-                    if (remapped.isBlank()) {
-                        remapped = findRegisteredRepoByLocalRepoId(repoId);
-                    }
-                    if (!remapped.isBlank() && !remapped.equals(codeWikiId)) {
-                        codeWiki.deleteRepo(remapped);
-                        codeWikiDeleted = true;
-                        codeWikiWarning = "";
-                    }
-                } catch (Exception ignored) {
-                    // keep original warning
+                if (codeWikiWarning.isBlank()) {
+                    codeWikiWarning = rootMessage(ex);
                 }
             }
         }
@@ -1365,10 +1844,59 @@ public class KnowledgeService {
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
+    /**
+     * Local clone lives under {@code data/repos/{loginUser}/{repoId}}, not necessarily
+     * under the GitHub org in full_name (e.g. Kiyalan/SEProject cloned as Yu-Liang-Yan/...).
+     */
+    private Path resolveLocalRepoDir(String repoId, String requestOwnerLogin, RepoIndex index) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        if (requestOwnerLogin != null && !requestOwnerLogin.isBlank()) {
+            candidates.add(requestOwnerLogin.trim());
+        }
+        if (index != null && index.getOwnerLogin() != null && !index.getOwnerLogin().isBlank()) {
+            candidates.add(index.getOwnerLogin().trim());
+        }
+        for (String login : candidates) {
+            Path path = git.hostPath(repoId, login);
+            if (Files.isDirectory(path)) {
+                return path;
+            }
+        }
+        // Last resort: scan host root for */{repoId}
+        try {
+            Path probe = git.hostPath(repoId, candidates.isEmpty() ? "_" : candidates.iterator().next());
+            Path root = probe.getParent() == null ? null : probe.getParent().getParent();
+            if (root != null && Files.isDirectory(root)) {
+                try (var stream = Files.list(root)) {
+                    for (Path ownerDir : stream.toList()) {
+                        if (!Files.isDirectory(ownerDir)) continue;
+                        Path hit = ownerDir.resolve(repoId);
+                        if (Files.isDirectory(hit)) {
+                            return hit;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // fall through
+        }
+        String fallback = candidates.isEmpty() ? ownerLogin(repoId) : candidates.iterator().next();
+        return git.hostPath(repoId, fallback == null ? "" : fallback);
+    }
+
     private String ownerLogin(String repoId) {
         return store.findIndex(repoId)
-                .map(RepoIndex::getFullName)
-                .map(fn -> fn.contains("/") ? fn.substring(0, fn.indexOf('/')) : fn)
+                .map(index -> {
+                    String stored = index.getOwnerLogin();
+                    if (stored != null && !stored.isBlank()) {
+                        return stored.trim();
+                    }
+                    String fullName = index.getFullName();
+                    if (fullName != null && fullName.contains("/")) {
+                        return fullName.substring(0, fullName.indexOf('/'));
+                    }
+                    return fullName == null ? "" : fullName;
+                })
                 .orElse("");
     }
 }

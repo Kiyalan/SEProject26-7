@@ -67,7 +67,7 @@ public class GitActionService {
         if ("unknown".equals(parsed.action())) {
             return Map.of(
                     "success", false,
-                    "message", "无法理解该命令。试试：「同步知识库」「创建分支 feature/demo」「提交 README.md：更新说明」"
+                    "message", "无法理解该命令。试试：「同步知识库」「创建分支 feature/demo」「提交 README.md：更新说明」「创建 PR from feature/demo into main」"
             );
         }
         try {
@@ -198,7 +198,17 @@ public class GitActionService {
             if (title.isBlank()) {
                 title = "RepoPilot automated PR";
             }
-            return new ParsedCommand("create_pr", Map.of("title", title, "head", "", "body", "Created via RepoPilot."));
+            // Require explicit head in NL; avoid empty-head PR failures.
+            Matcher headMatch = Pattern.compile("(?:from|head|compare|源分支)\\s*[`'\"]?([\\w./-]+)", Pattern.CASE_INSENSITIVE)
+                    .matcher(command);
+            Matcher baseMatch = Pattern.compile("(?:into|base|to|目标分支|合并到)\\s*[`'\"]?([\\w./-]+)", Pattern.CASE_INSENSITIVE)
+                    .matcher(command);
+            String head = headMatch.find() ? headMatch.group(1) : "";
+            String base = baseMatch.find() ? baseMatch.group(1) : "main";
+            if (head.isBlank()) {
+                return new ParsedCommand("unknown", Map.of());
+            }
+            return new ParsedCommand("create_pr", Map.of("title", title, "head", head, "base", base, "body", "Created via RepoPilot."));
         }
         return new ParsedCommand("unknown", Map.of());
     }

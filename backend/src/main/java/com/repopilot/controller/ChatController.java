@@ -9,6 +9,8 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
@@ -46,8 +48,10 @@ public class ChatController {
         if (message.length() > 2000) {
             throw new IllegalArgumentException("message 最长 2000 字符");
         }
-        KnowledgeQueryService.QueryResult query = queryService.retrieve(repoId, message, ownerLogin, token);
-        return llmService.chat(repoId, message, query.contexts(), query.intent());
+        List<String> history = priorUserMessages(body);
+        KnowledgeQueryService.QueryResult query =
+                queryService.retrieve(repoId, message, ownerLogin, token, history);
+        return llmService.chat(repoId, message, query.contexts(), query.intent(), history);
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -66,6 +70,7 @@ public class ChatController {
         if (message.length() > 2000) {
             throw new IllegalArgumentException("message 最长 2000 字符");
         }
+        List<String> history = priorUserMessages(body);
 
         // Return SSE immediately; retrieve used to block the HTTP thread before any event,
         // which made the UI sit on "responding" with no feedback (often CodeWiki/LLM latency).
@@ -73,11 +78,12 @@ public class ChatController {
         String questionType = KnowledgeUtils.classifyQuestion(message);
         chatExecutor.execute(() -> {
             try {
-                llmService.sendStatus(emitter, "正在检索 GraphRAG 上下文…");
+                llmService.sendStatus(emitter, "正在检索相关资料…");
                 KnowledgeQueryService.QueryResult query =
-                        queryService.retrieve(repoId, message, ownerLogin, token);
-                llmService.sendStatus(emitter, "检索完成，正在生成回答…");
-                llmService.streamInto(emitter, repoId, message, questionType, query.intent(), query.contexts());
+                        queryService.retrieve(repoId, message, ownerLogin, token, history);
+                llmService.sendStatus(emitter, "正在生成回答…");
+                llmService.streamInto(emitter, repoId, message, questionType, query.intent(),
+                        query.contexts(), history);
             } catch (Exception ex) {
                 try {
                     llmService.sendError(emitter, ex.getMessage() == null ? "问答失败" : ex.getMessage());
@@ -88,5 +94,27 @@ public class ChatController {
             }
         });
         return emitter;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> priorUserMessages(Map<String, Object> body) {
+        Object raw = body.get("history");
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (Object item : list) {
+            if (item == null) {
+                continue;
+            }
+            String text = Objects.toString(item, "").trim();
+            if (!text.isBlank()) {
+                out.add(text.length() > 500 ? text.substring(0, 500) : text);
+            }
+            if (out.size() >= 5) {
+                break;
+            }
+        }
+        return out;
     }
 }

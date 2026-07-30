@@ -115,6 +115,52 @@ class KnowledgeQueryServiceTest {
                 .contains("repository_overview", "graph_explore");
     }
 
+  @Test
+    void routesOverviewQuestionsToRepositoryOverview() {
+        KnowledgeService knowledge = mock(KnowledgeService.class);
+        PortfolioService portfolio = mock(PortfolioService.class);
+        when(knowledge.repositoryOverviewContext(eq("repo"), eq("owner")))
+                .thenReturn(context("仓库概览", "repository_overview"));
+        when(knowledge.retrieveChunksByPathHints(anyString(), anyString(), anyString(), anyList(), anyInt()))
+                .thenReturn(List.of(context("README.md", "code")));
+        when(knowledge.graphRagContexts(anyString(), anyString(), anyString(), anyInt()))
+                .thenReturn(List.of(context("codewiki/graph-explore", "graph_explore")));
+        KnowledgeQueryService service = new KnowledgeQueryService(knowledge, portfolio);
+
+        KnowledgeQueryService.QueryResult purpose =
+                service.retrieve("repo", "请问该项目的目的", "owner");
+        KnowledgeQueryService.QueryResult structure =
+                service.retrieve("repo", "介绍项目结构", "owner");
+        KnowledgeQueryService.QueryResult pipeline =
+                service.retrieve("repo", "请问该项目主要链路为", "owner");
+
+        assertThat(purpose.intent()).contains("overview");
+        assertThat(structure.intent()).contains("overview");
+        assertThat(pipeline.intent()).contains("overview");
+        assertThat(purpose.contexts())
+                .extracting(row -> row.get("sourceType"))
+                .contains("repository_overview", "graph_explore");
+        verify(knowledge, org.mockito.Mockito.atLeastOnce())
+                .repositoryOverviewContext("repo", "owner");
+    }
+
+    @Test
+    void routesTypeQuestionsAwayFromOverviewIntent() {
+        KnowledgeService knowledge = mock(KnowledgeService.class);
+        PortfolioService portfolio = mock(PortfolioService.class);
+        when(knowledge.graphRagContexts(eq("repo"), eq("owner"), anyString(), anyInt()))
+                .thenReturn(List.of(context("KnowledgeService.java", "source_code")));
+        KnowledgeQueryService service = new KnowledgeQueryService(knowledge, portfolio);
+
+        KnowledgeQueryService.QueryResult result = service.retrieve(
+                "repo", "请问当前项目中knowledgeservice在做什么？包含哪些方法？", "owner");
+
+        assertThat(result.intent()).contains("code");
+        assertThat(result.intent()).doesNotContain("overview");
+        assertThat(KnowledgeQueryService.isSpecificTypeQuestion("knowledgeservice在做什么")).isTrue();
+        verify(knowledge).graphRagContexts(eq("repo"), eq("owner"), anyString(), anyInt());
+    }
+
     private static Map<String, Object> context(String file, String sourceType) {
         return Map.of(
                 "file", file,

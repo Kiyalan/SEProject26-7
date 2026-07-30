@@ -37,32 +37,6 @@ const cardStyle = {
   border: '1px solid #e5e7eb',
 } as const
 
-const questionTypeMap: Record<string, { label: string; className: string }> = {
-  what: { label: 'What', className: 'gh-label gh-label-blue' },
-  where: { label: 'Where', className: 'gh-label' },
-  how: { label: 'How', className: 'gh-label gh-label-green' },
-}
-
-const intentLabels: Record<string, string> = {
-  code: '代码',
-  history: '历史',
-  api: '接口',
-  deployment: '部署',
-  overview: '概览',
-  branches: '分支',
-  portfolio: '多仓库',
-  knowledge_status: '知识库状态',
-}
-
-function formatIntent(intent?: string) {
-  if (!intent) return null
-  return intent
-    .split('+')
-    .filter(Boolean)
-    .map((part) => intentLabels[part] || part)
-    .join(' · ')
-}
-
 const MAX_QUESTION_LENGTH = 2000
 
 function useChatSession(repoId: string) {
@@ -179,6 +153,11 @@ export default function Chat() {
     }
 
     const { seq, controller } = beginChatRequest(currentRepoId)
+    const history = session.messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content.trim())
+      .filter(Boolean)
+      .slice(-3)
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
@@ -199,7 +178,11 @@ export default function Chat() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token ?? ''}`,
         },
-        body: JSON.stringify({ repoId: currentRepoId, message: trimmed }),
+        body: JSON.stringify({
+          repoId: currentRepoId,
+          message: trimmed,
+          history,
+        }),
         signal: controller.signal,
       })
 
@@ -491,21 +474,6 @@ export default function Chat() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
                       <Text strong>{item.role === 'user' ? '你' : projectDisplayName}</Text>
-                      {item.questionType && (
-                        <Tag style={{ borderRadius: 8 }}>
-                          {questionTypeMap[item.questionType]?.label ?? item.questionType}
-                        </Tag>
-                      )}
-                      {item.intent && (
-                        <Tag color="processing" style={{ borderRadius: 8 }}>
-                          意图 · {formatIntent(item.intent)}
-                        </Tag>
-                      )}
-                      {item.emptyEvidence && (
-                        <Tag color="orange" style={{ borderRadius: 8 }}>
-                          无证据
-                        </Tag>
-                      )}
                       {item.error && (
                         <Tag color="error" style={{ borderRadius: 8 }}>
                           失败
@@ -520,12 +488,6 @@ export default function Chat() {
                     <Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
                       {item.content.replace(/\*\*/g, '')}
                     </Paragraph>
-                    {item.citations?.map((c) => (
-                      <Text key={`${c.file}-${c.line}`} type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                        引用：{c.file}
-                        {c.line ? `:${c.line}` : ''}
-                      </Text>
-                    ))}
                     {item.role === 'assistant' && !item.error && !item.streaming && item.content.trim() && (
                       <div style={{ marginTop: 10 }}>
                         <Button

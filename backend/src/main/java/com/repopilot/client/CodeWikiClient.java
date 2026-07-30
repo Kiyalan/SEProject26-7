@@ -240,6 +240,11 @@ public class CodeWikiClient {
                 new GraphBuildRequest(properties.includeEmbeddings()), JsonNode.class, "graphrag_build");
     }
 
+    /** Whether GraphRAG build/retrieve should call the embedding LLM profile. */
+    public boolean includeEmbeddings() {
+        return properties.includeEmbeddings();
+    }
+
     public JsonNode retrieve(String repoId, String query, int maxHops) {
         return post(repo(repoId) + "/graphrag/retrieve",
                 new RetrieveRequest(query, maxHops, properties.includeEmbeddings()),
@@ -255,6 +260,22 @@ public class CodeWikiClient {
 
     public JsonNode communities(String repoId) {
         return get(repo(repoId) + "/communities", JsonNode.class, "communities");
+    }
+
+    /**
+     * LLM-rename/summarize Louvain communities (CodeWiki CommunityNamer).
+     * Used for denser GraphRAG community records; chat retrieve path is unchanged.
+     */
+    public JsonNode nameCommunities(String repoId) {
+        return nameCommunities(repoId, 150);
+    }
+
+    public JsonNode nameCommunities(String repoId, int maxCommunities) {
+        int capped = Math.max(1, Math.min(maxCommunities, 300));
+        return post(repo(repoId) + "/communities/name",
+                Map.of("max_communities", capped),
+                JsonNode.class,
+                "communities_name");
     }
 
     /** Full AST/GraphRAG graph (nodes + edges + communities) from CodeWiki. */

@@ -331,6 +331,42 @@ export default function Knowledge() {
       fetchKnowledgeGraphStatus({ path: { repoId: currentRepoId } })
         .then(({ data: status }) => setGraphStatus(status))
         .catch(() => setGraphStatus(null))
+      authAxios
+        .get<{
+          source?: string
+          codeWikiRepoId?: string
+          nodeCount?: number
+          edgeCount?: number
+          communityCount?: number
+          note?: string
+          nodes?: GraphVizNode[]
+          edges?: GraphVizEdge[]
+          communities?: Array<{ id?: string; name?: string; summary?: string }>
+        }>(`/api/repos/${currentRepoId}/knowledge/graph`)
+        .then((res) => {
+          setFullGraph({
+            source: res.data.source,
+            codeWikiRepoId: res.data.codeWikiRepoId,
+            nodeCount: res.data.nodeCount,
+            edgeCount: res.data.edgeCount,
+            communityCount: res.data.communityCount,
+            note: res.data.note,
+            nodes: res.data.nodes ?? [],
+            edges: res.data.edges ?? [],
+            communities: res.data.communities ?? [],
+          })
+          setGraphLoadError(null)
+        })
+        .catch((err: Error) => {
+          setFullGraph(null)
+          setGraphLoadError(err.message || '加载完整图谱失败')
+        })
+      authAxios
+        .get<{ items?: Array<{ symbolName?: string; content?: string; score?: number }> }>(
+          `/api/repos/${currentRepoId}/knowledge/communities`,
+        )
+        .then((res) => setCommunities(res.data.items ?? []))
+        .catch(() => setCommunities([]))
     } catch (err) {
       setError(err instanceof Error ? err.message : '构建失败')
       if (currentRepoId) await loadTasks(currentRepoId)
@@ -368,6 +404,9 @@ export default function Knowledge() {
           }
           setOverview(null)
           setGraphStatus(null)
+          setFullGraph(null)
+          setCommunities([])
+          setGraphLoadError(null)
           setWiki(null)
           setSelectedWikiPageId('')
           setFaq(null)
@@ -379,6 +418,9 @@ export default function Knowledge() {
           fetchKnowledgeGraphStatus({ path: { repoId: currentRepoId } })
             .then(({ data: status }) => setGraphStatus(status))
             .catch(() => setGraphStatus(null))
+          // After reset, graph must clear — do not keep stale CodeWiki viz in memory
+          setFullGraph(null)
+          setCommunities([])
           fetchKnowledgeWiki({ path: { repoId: currentRepoId }, query: { language: 'zh' } })
             .then(({ data: current }) => setWiki(current))
             .catch(() => setWiki(null))
