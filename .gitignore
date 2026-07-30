@@ -11,6 +11,18 @@ dist/
 backend/target/
 target/
 *.class
+# Maven status caches (regenerated each build)
+**/maven-status/
+**/maven-archiver/
+
+# Test coverage reports
+coverage/
+**/coverage/
+*.lcov
+*.lcov.info
+frontend/junit.xml
+backend/surefire-reports/
+**/surefire-reports/
 
 # Python
 .venv/
