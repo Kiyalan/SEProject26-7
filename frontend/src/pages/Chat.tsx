@@ -8,12 +8,10 @@ const { Text, Title, Paragraph } = Typography;
 const { TextArea } = Input;
 
 export default function Chat() {
-  // 完全保留你原有的状态、接口、消息逻辑
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
-  const [hasKnowledge, setHasKnowledge] = useState(false);
+  const [hasKnowledge] = useState(true);
 
-  // 示例问题，保留原有引导逻辑
   const sampleQuestions = [
     '这个项目是做什么的？',
     '路由配置在哪里？',
@@ -22,14 +20,27 @@ export default function Chat() {
 
   const handleSend = useCallback(() => {
     if (!input.trim()) return;
-    // 保留你原有的发送逻辑
-    setMessages((prev) => [...prev, { role: 'user', content: input }]);
+    const userMessage = input.trim();
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: userMessage },
+      { role: 'assistant', content: `已收到问题：${userMessage}` },
+    ]);
     setInput('');
   }, [input]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
 
   const handleSampleClick = (q: string) => {
     setInput(q);
   };
+
+  const sendDisabled = !input.trim();
 
   return (
     <PageShell
@@ -125,13 +136,14 @@ export default function Chat() {
               onChange={(e) => setInput(e.target.value)}
               placeholder="例如：路由配置在哪里？如何运行测试？"
               style={{ borderRadius: '10px 0 0 10px', fontSize: 14 }}
-              onPressEnter={handleSend}
+              onKeyDown={handleKeyDown}
             />
             <Button
               type="primary"
               size="large"
               icon={<SendOutlined />}
               onClick={handleSend}
+              disabled={sendDisabled}
               style={{
                 height: 'auto',
                 borderRadius: '0 10px 10px 0',
