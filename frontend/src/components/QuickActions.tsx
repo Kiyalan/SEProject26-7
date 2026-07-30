@@ -1,4 +1,3 @@
-import { projectDisplayNameLower } from '../config/BaseConfig'
 import { Alert, Modal, Input, message } from 'antd'
 import { useState } from 'react'
 import { useRepoContext } from '../context/RepoContext'
@@ -22,6 +21,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
   }>({ type: 'branch', open: false })
   const [form, setForm] = useState({
     branch: '',
+    base: 'main',
     path: 'README.md',
     content: '',
     message: '',
@@ -107,19 +107,38 @@ export default function QuickActions({ compact }: QuickActionsProps) {
         })
         detail = typeof data?.message === 'string' ? data.message : `已提交 ${form.path}`
       } else {
+        const head = form.branch.trim()
+        const base = (form.base || 'main').trim()
+        if (!head) {
+          message.warning('请填写 compare（源分支 / head）')
+          return
+        }
+        if (!base) {
+          message.warning('请填写 base（目标分支）')
+          return
+        }
+        if (head === base) {
+          message.warning('base 与 compare 不能相同')
+          return
+        }
         const { data } = await executeGitAction({
           path: { repoId: currentRepoId },
           body: {
             action: 'create_pr',
             params: {
-              title: form.prTitle,
-              body: form.prBody,
-              head: form.branch || `${projectDisplayNameLower}-${Date.now()}`,
+              title: form.prTitle || `Merge ${head} into ${base}`,
+              body: form.prBody || `Merge \`${head}\` → \`${base}\` via RepoPilot.`,
+              head,
+              base,
             },
           },
         })
         const url = typeof data?.htmlUrl === 'string' ? data.htmlUrl : typeof data?.url === 'string' ? data.url : ''
-        detail = url ? `PR 已创建：${url}` : typeof data?.message === 'string' ? data.message : 'Pull Request 已创建'
+        detail = url
+          ? `PR 已创建（${head} → ${base}）：${url}`
+          : typeof data?.message === 'string'
+            ? data.message
+            : `Pull Request 已创建（${head} → ${base}）`
       }
       message.success(detail)
       setModal((m) => ({ ...m, open: false }))
@@ -189,7 +208,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
         <div className="gh-box-body">
           <textarea
             className="gh-nl-input"
-            placeholder={`例如：\n同步 ${currentRepo?.fullName || '当前仓库'} 的知识库\n创建分支 feature/demo\n提交 README：更新项目说明`}
+            placeholder={`例如：\n同步知识库\n创建分支 feature/demo\n提交 README.md：更新项目说明\n创建 PR from feature/demo into main`}
             value={nlCommand}
             onChange={(e) => setNlCommand(e.target.value)}
           />
@@ -236,21 +255,25 @@ export default function QuickActions({ compact }: QuickActionsProps) {
         )}
         {modal.type === 'commit' && (
           <>
+            <p className="gh-muted" style={{ marginBottom: 8, fontSize: 12 }}>
+              通过 GitHub Contents API，在默认分支（或你指定的分支）上新建/覆盖单个文件并生成一次 commit。
+              适合改 README 等文本文件；不是本地 git add/commit/push 全仓库。
+            </p>
             <Input
               style={{ marginBottom: 8 }}
-              placeholder="文件路径"
+              placeholder="文件路径，如 README.md 或 docs/note.md"
               value={form.path}
               onChange={(e) => setForm((f) => ({ ...f, path: e.target.value }))}
             />
             <Input
               style={{ marginBottom: 8 }}
-              placeholder="提交说明"
+              placeholder="提交说明（commit message）"
               value={form.message}
               onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
             />
             <Input.TextArea
               rows={8}
-              placeholder="文件内容"
+              placeholder="文件完整内容（将写入上述路径）"
               value={form.content}
               onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
             />
@@ -258,9 +281,23 @@ export default function QuickActions({ compact }: QuickActionsProps) {
         )}
         {modal.type === 'pr' && (
           <>
+            <p className="gh-muted" style={{ marginBottom: 8, fontSize: 12 }}>
+              明确双方：compare（源 / head）合并进 base（目标）。对应 GitHub 的
+              {' '}
+              <code>base...compare</code>
+              。
+            </p>
             <Input
               style={{ marginBottom: 8 }}
-              placeholder="源分支（head）"
+              addonBefore="base"
+              placeholder="目标分支，如 main"
+              value={form.base}
+              onChange={(e) => setForm((f) => ({ ...f, base: e.target.value }))}
+            />
+            <Input
+              style={{ marginBottom: 8 }}
+              addonBefore="compare"
+              placeholder="源分支（head），如 feature/demo"
               value={form.branch}
               onChange={(e) => setForm((f) => ({ ...f, branch: e.target.value }))}
             />
@@ -272,7 +309,7 @@ export default function QuickActions({ compact }: QuickActionsProps) {
             />
             <Input.TextArea
               rows={4}
-              placeholder="PR 描述"
+              placeholder="PR 描述（可选）"
               value={form.prBody}
               onChange={(e) => setForm((f) => ({ ...f, prBody: e.target.value }))}
             />

@@ -87,15 +87,16 @@ public class FaqService {
             generated.add(item);
         }
 
-        jdbc.update("DELETE FROM repo_faq_items WHERE repo_id = ?", repoId);
+        jdbc.update("DELETE FROM repo_faq_items WHERE repo_id = ? AND category <> 'chat'", repoId);
         for (Map<String, Object> item : generated) {
             jdbc.update("""
                     INSERT INTO repo_faq_items
-                    (id, repo_id, category, question, answer, related_files, confidence, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, repo_id, owner_login, category, question, answer, related_files, confidence, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     item.get("id"),
                     repoId,
+                    ownerLogin == null ? "" : ownerLogin,
                     item.get("category"),
                     item.get("question"),
                     item.get("answer"),
@@ -126,6 +127,46 @@ public class FaqService {
         result.put("itemCount", items.size());
         result.put("exportedAt", exportedAt);
         return result;
+    }
+
+    /** Persist one chat Q&A turn into the repo FAQ list (manual curation). */
+    @Transactional
+    public Map<String, Object> addFromChat(String repoId, String ownerLogin, String question, String answer, String category) {
+        String q = question == null ? "" : question.trim();
+        String a = answer == null ? "" : answer.trim();
+        if (q.isBlank() || a.isBlank()) {
+            throw new IllegalArgumentException("question 与 answer 不能为空");
+        }
+        if (q.length() > 500) {
+            q = q.substring(0, 500) + "…";
+        }
+        if (a.length() > 8000) {
+            a = a.substring(0, 8000) + "…";
+        }
+        String cat = (category == null || category.isBlank()) ? "chat" : category.trim();
+        if (cat.length() > 32) {
+            cat = cat.substring(0, 32);
+        }
+        String now = LocalDateTime.now(ZoneOffset.UTC).format(TS);
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        String owner = ownerLogin == null ? "" : ownerLogin.trim();
+        jdbc.update("""
+                INSERT INTO repo_faq_items
+                (id, repo_id, owner_login, category, question, answer, related_files, confidence, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                id, repoId, owner, cat, q, a, "[]", 0.8, now);
+
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", id);
+        item.put("category", cat);
+        item.put("question", q);
+        item.put("answer", a);
+        item.put("relatedFiles", List.of());
+        item.put("confidence", 0.8);
+        item.put("updatedAt", now);
+        item.put("source", "chat");
+        return item;
     }
 
     private Map<String, Object> buildItem(String repoId, TopicSeed seed,

@@ -44,6 +44,10 @@ services:
       CODEWIKI_AST_PARSE_ISOLATE: ${CODEWIKI_AST_PARSE_ISOLATE:-1}
       # Extra gitignore-style patterns (comma-separated) applied on top of CodeWiki defaults
       CODEWIKI_EXTRA_IGNORES: ${CODEWIKI_EXTRA_IGNORES:-**/generated/,**/*.gen.ts,**/*.gen.tsx,**/*.gen.js}
+      # Community naming density (patched CommunityNamer for Q&A-ready summaries)
+      CODEWIKI_MAX_COMMUNITIES_NAME: ${CODEWIKI_MAX_COMMUNITIES_NAME:-150}
+      CODEWIKI_COMMUNITIES_PER_BATCH: ${CODEWIKI_COMMUNITIES_PER_BATCH:-5}
+      CODEWIKI_COMMUNITY_SUMMARY_CHARS: ${CODEWIKI_COMMUNITY_SUMMARY_CHARS:-2500}
     ports:
       - "127.0.0.1:8001:8000"
     volumes:

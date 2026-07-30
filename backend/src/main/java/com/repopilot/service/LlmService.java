@@ -94,49 +94,136 @@ public class LlmService {
     }
 
     public String generateAnswer(String question, String questionType, List<Map<String, Object>> contexts) {
-        return generateAnswer(question, questionType, contexts, "code");
+        return generateAnswer(question, questionType, contexts, "code", List.of());
     }
 
     public String generateAnswer(String question, String questionType,
                                  List<Map<String, Object>> contexts, String intent) {
+        return generateAnswer(question, questionType, contexts, intent, List.of());
+    }
+
+    public String generateAnswer(String question, String questionType,
+                                 List<Map<String, Object>> contexts, String intent,
+                                 List<String> priorUserMessages) {
         if (!configured() || contexts.isEmpty()) {
             return buildFallback(question, questionType, contexts);
         }
-        String contextText = contexts.stream()
-                .map(c -> "[" + c.getOrDefault("sourceType", "code") + " | "
-                        + c.get("file") + ":" + c.get("line") + "]\n" + c.get("content"))
-                .reduce((a, b) -> a + "\n\n" + b)
-                .orElse("");
-        String intentInstruction = intent.contains("branches")
-                ? "这是分支问题：必须依据 branch_list 上下文列出分支名，并用 aheadOfDefault/behindDefault/relation/littleUniqueContent 判断落后或几乎无独有内容。不要说看不到分支。"
-                : intent.contains("portfolio")
-                ? "这是多仓库问题：必须依据 portfolio 上下文列出具体仓库全名，区分「几乎没有内容/未索引」与「可能落后」。不要说无法判断，除非 portfolio 上下文缺失。"
-                : intent.contains("history")
-                ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；是否对当前 HEAD「过时」证据不足时标为无法判断，不要编造。"
-                : intent.contains("api")
-                ? "接口问题优先依据 api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权；不要只列前端函数名。"
-                : intent.contains("deployment")
-                ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署；缺少 Docker 或生产文档时明确指出。"
-                : "优先使用结构化仓库信息和相关源码回答。";
-        String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径、仓库全名、分支名或 commit SHA。" + intentInstruction;
-        String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
-                + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
-                + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
+        PromptPair prompts = buildAnswerPrompts(question, contexts, intent, priorUserMessages);
         try {
             int maxTokens = intent.contains("history") || intent.contains("api")
-                    || intent.contains("portfolio") || intent.contains("branches") ? 3000 : 1800;
-            return chatCompletion(systemPrompt, userPrompt, maxTokens);
+                    || intent.contains("portfolio") || intent.contains("branches")
+                    || intent.contains("overview") ? 3000 : 1800;
+            return sanitizeAnswer(chatCompletion(prompts.system(), prompts.user(), maxTokens));
         } catch (Exception ex) {
-            return buildFallback(question, questionType, contexts, intent) + "\n\n（" + ex.getMessage() + "）";
+            return sanitizeAnswer(buildFallback(question, questionType, contexts, intent) + "\n\n（" + ex.getMessage() + "）");
         }
     }
+
+    /** Shared prompts for sync + streaming chat. Always includes the full original question. */
+    private PromptPair buildAnswerPrompts(String question, List<Map<String, Object>> contexts, String intent,
+                                          List<String> priorUserMessages) {
+        String contextText = formatContextsForPrompt(contexts);
+        String system = "你是仓库助手 RepoPilot。根据参考资料直接回答用户问题。"
+                + "必须围绕用户问题的完整原文作答：先给结论，再列关键要点。"
+                + "只用资料中的事实；不确定就明确说不确定，不要编造。"
+                + "优先依据 GraphRAG 检索片段作答；社区资料中的 GRAPH_FILES/GRAPH_SYMBOLS 来自图谱成员，可直接用于列文件/符号。"
+                + "仅当需要方法体细节时，才使用已附带的少量目标文件源码。"
+                + "列出类/方法时，只能依据图谱符号或源码中真实出现的签名；禁止把单元测试方法名当成业务 API。"
+                + "用中文分段表述；不要使用 Markdown 加粗；不要复述资料编号、内部标签或系统实现细节。"
+                + briefIntentHint(intent);
+        StringBuilder user = new StringBuilder();
+        user.append("用户问题（完整原文）：\n").append(question).append("\n\n");
+        if (priorUserMessages != null && !priorUserMessages.isEmpty()) {
+            user.append("对话上文（仅用于理解「该类/它/上述」等指代）：\n");
+            int from = Math.max(0, priorUserMessages.size() - 3);
+            for (int i = from; i < priorUserMessages.size(); i++) {
+                user.append("- ").append(priorUserMessages.get(i)).append('\n');
+            }
+            user.append('\n');
+        }
+        user.append("参考资料：\n").append(contextText)
+                .append("\n\n请直接回答上面的用户问题，只输出答案正文。");
+        return new PromptPair(system, user.toString());
+    }
+
+    private static String formatContextsForPrompt(List<Map<String, Object>> contexts) {
+        StringBuilder sb = new StringBuilder();
+        int index = 1;
+        for (Map<String, Object> c : contexts) {
+            String label = String.valueOf(c.getOrDefault("file", "资料")).trim();
+            if (label.startsWith("codewiki/")) {
+                label = label.substring("codewiki/".length());
+            }
+            if (label.startsWith("knowledge/")) {
+                label = label.substring("knowledge/".length());
+            }
+            String content = String.valueOf(c.getOrDefault("content", "")).trim();
+            if (content.isBlank()) {
+                continue;
+            }
+            sb.append(index++).append(". ").append(label).append('\n').append(content).append("\n\n");
+        }
+        return sb.toString().trim();
+    }
+
+    private static String briefIntentHint(String intent) {
+        if (intent == null || intent.isBlank()) {
+            return "";
+        }
+        if (intent.contains("overview")) {
+            return "这是项目概览类问题：先用 GraphRAG 社区概括模块地图，再引用 README/关键源码说明目的与主链路；不要只堆社区名称而不解释。";
+        }
+        if (intent.contains("knowledge_status")) {
+            return "这是知识库是否就绪的问题：直接给出是否已构建及简要规模。";
+        }
+        if (intent.contains("branches")) {
+            return "这是分支问题：只用资料中的 ahead/behind 等对比数字，勿臆测未索引分支的代码内容。";
+        }
+        if (intent.contains("portfolio")) {
+            return "这是多仓库问题：列出具体仓库名，区分未索引与内容很少。";
+        }
+        if (intent.contains("history")) {
+            return "这是提交历史问题：逐条依据资料中的 commit；证据不足就标明无法判断。";
+        }
+        if (intent.contains("api")) {
+            return "这是接口问题：尽量给出方法、路径与用途；有控制器源码时依据源码。";
+        }
+        if (intent.contains("deployment")) {
+            return "这是启动/部署问题：依据实际配置与脚本，区分开发启动与生产部署。";
+        }
+        return "若资料含「公开 API 清单」或类源码正文，列方法时必须完整覆盖清单；"
+                + "禁止只根据其他类的调用点拼凑方法子集，也禁止把 *Test 方法当成业务 API。"
+                + "不得声称「无法查看源码」——若资料中已有源码/清单，直接据此作答。";
+    }
+
+    private record PromptPair(String system, String user) {}
 
     private String chatCompletion(String systemPrompt, String userPrompt) {
         return chatCompletion(systemPrompt, userPrompt, 1200);
     }
 
     private String chatCompletion(String systemPrompt, String userPrompt, int maxTokens) {
+        List<Map<String, Object>> messages = List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userPrompt)
+        );
+        JsonNode response = chatCompletionRaw(messages, null, false, maxTokens);
+        String content = response.path("choices").path(0).path("message").path("content").asText("").trim();
+        if (content.isBlank()) {
+            LlmConfigService.LlmSettings llm = configService.current();
+            throw new IllegalStateException(
+                    "LLM 返回了空内容（模型: " + llm.model() + "）。请检查模型是否可用，或在设置中更换模型。");
+        }
+        return content;
+    }
+
+    /**
+     * Low-level chat/completions. When {@code tools} is non-null, requests tool calling.
+     * Returns the raw JSON response (caller reads message / tool_calls).
+     */
+    public JsonNode chatCompletionRaw(List<Map<String, Object>> messages,
+                                      com.fasterxml.jackson.databind.node.ArrayNode tools,
+                                      boolean enableTools, int maxTokens) {
         LlmConfigService.LlmSettings llm = configService.current();
         String apiKey = llm.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
@@ -144,12 +231,13 @@ public class LlmService {
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", llm.model());
-        body.put("messages", List.of(
-                Map.of("role", "system", "content", systemPrompt),
-                Map.of("role", "user", "content", userPrompt)
-        ));
+        body.put("messages", messages);
         body.put("temperature", 0.2);
-        body.put("max_tokens", maxTokens);
+        body.put("max_tokens", Math.max(256, maxTokens));
+        if (enableTools && tools != null && !tools.isEmpty()) {
+            body.put("tools", tools);
+            body.put("tool_choice", "auto");
+        }
 
         JsonNode response;
         try {
@@ -175,13 +263,10 @@ public class LlmService {
         if (response != null && response.hasNonNull("error")) {
             throw new IllegalStateException(formatLlmApiError(response.path("error"), llm.model()));
         }
-        String content = response == null ? ""
-                : response.path("choices").path(0).path("message").path("content").asText("").trim();
-        if (content.isBlank()) {
-            throw new IllegalStateException(
-                    "LLM 返回了空内容（模型: " + llm.model() + "）。请检查模型是否可用，或在设置中更换模型。");
+        if (response == null) {
+            throw new IllegalStateException("LLM 返回空响应（模型: " + llm.model() + "）");
         }
-        return content;
+        return response;
     }
 
     private static String formatLlmHttpError(int status, String body, String model) {
@@ -256,11 +341,17 @@ public class LlmService {
     }
 
     public Map<String, Object> chat(String repoId, String message, List<Map<String, Object>> contexts) {
-        return chat(repoId, message, contexts, "code");
+        return chat(repoId, message, contexts, "code", List.of());
     }
 
     public Map<String, Object> chat(String repoId, String message,
                                     List<Map<String, Object>> contexts, String intent) {
+        return chat(repoId, message, contexts, intent, List.of());
+    }
+
+    public Map<String, Object> chat(String repoId, String message,
+                                    List<Map<String, Object>> contexts, String intent,
+                                    List<String> priorUserMessages) {
         String questionType = KnowledgeUtils.classifyQuestion(message);
         List<Map<String, Object>> citations = contexts.stream().limit(3)
                 .map(c -> Map.<String, Object>of("file", c.get("file"), "line", c.get("line")))
@@ -268,11 +359,10 @@ public class LlmService {
         boolean llmEnabled = configured() && !contexts.isEmpty();
         String answer;
         if (contexts.isEmpty()) {
-            answer = "未检索到可用知识库证据。请确认已构建 GraphRAG，或换一种问法后重试。"
-                    + "（检测到意图: " + intent + "）";
+            answer = "未检索到可用资料。请确认已构建知识库，或换一种问法后重试。";
         } else {
             answer = llmEnabled
-                    ? generateAnswer(message, questionType, contexts, intent)
+                    ? generateAnswer(message, questionType, contexts, intent, priorUserMessages)
                     : buildFallback(message, questionType, contexts, intent);
         }
         return Map.of(
@@ -286,7 +376,42 @@ public class LlmService {
 
     public SseEmitter streamChat(String repoId, String message, String questionType,
                                   String intent, List<Map<String, Object>> contexts) {
-        SseEmitter emitter = new SseEmitter(300_000L); // 5 分钟超时
+        SseEmitter emitter = new SseEmitter(300_000L);
+        streamExecutor.execute(() -> {
+            try {
+                streamInto(emitter, repoId, message, questionType, intent, contexts, List.of());
+            } catch (Exception ex) {
+                try {
+                    sendError(emitter, ex.getMessage());
+                } catch (Exception ignored) {}
+                emitter.completeWithError(ex);
+            }
+        });
+        return emitter;
+    }
+
+    public void sendStatus(SseEmitter emitter, String message) throws IOException {
+        emitter.send(SseEmitter.event()
+                .name("status")
+                .data(mapper.writeValueAsString(Map.of("message", message))));
+    }
+
+    public void sendError(SseEmitter emitter, String message) throws IOException {
+        emitter.send(SseEmitter.event()
+                .name("error")
+                .data(mapper.writeValueAsString(Map.of(
+                        "message", message == null || message.isBlank() ? "问答失败" : message))));
+    }
+
+    /** Drive an already-opened SSE emitter (retrieve may have run in caller). */
+    public void streamInto(SseEmitter emitter, String repoId, String message, String questionType,
+                           String intent, List<Map<String, Object>> contexts) throws Exception {
+        streamInto(emitter, repoId, message, questionType, intent, contexts, List.of());
+    }
+
+    public void streamInto(SseEmitter emitter, String repoId, String message, String questionType,
+                           String intent, List<Map<String, Object>> contexts,
+                           List<String> priorUserMessages) throws Exception {
         List<Map<String, Object>> citations = contexts.stream().limit(3)
                 .map(c -> Map.<String, Object>of("file", c.get("file"), "line", c.get("line")))
                 .toList();
@@ -294,78 +419,62 @@ public class LlmService {
 
         if (!llmEnabled || contexts.isEmpty()) {
             String fallback = contexts.isEmpty()
-                    ? "未检索到可用知识库证据。请确认已构建 GraphRAG，或换一种问法后重试。"
-                    : buildFallback(message, questionType, contexts, intent);
-            try {
-                emitter.send(SseEmitter.event()
-                        .name("data")
-                        .data(mapper.writeValueAsString(Map.of(
-                                "content", fallback,
-                                "questionType", questionType,
-                                "citations", citations,
-                                "llmEnabled", false,
-                                "intent", intent,
-                                "done", true
-                        ))));
-                emitter.complete();
-            } catch (IOException e) {
-                emitter.completeWithError(e);
-            }
-            return emitter;
+                    ? "未检索到可用资料。请确认已构建知识库，或换一种问法后重试。"
+                    : sanitizeAnswer(buildFallback(message, questionType, contexts, intent));
+            emitter.send(SseEmitter.event()
+                    .name("meta")
+                    .data(mapper.writeValueAsString(Map.of(
+                            "questionType", questionType,
+                            "citations", citations,
+                            "llmEnabled", false,
+                            "intent", intent
+                    ))));
+            emitter.send(SseEmitter.event()
+                    .name("token")
+                    .data(mapper.writeValueAsString(Map.of("content", fallback))));
+            emitter.send(SseEmitter.event()
+                    .name("done")
+                    .data(mapper.writeValueAsString(Map.of("answer", fallback))));
+            emitter.complete();
+            return;
         }
 
-        streamExecutor.execute(() -> {
-            try {
-                // 发送元数据
-                emitter.send(SseEmitter.event()
-                        .name("meta")
-                        .data(mapper.writeValueAsString(Map.of(
-                                "questionType", questionType,
-                                "citations", citations,
-                                "llmEnabled", true,
-                                "intent", intent
-                        ))));
-                streamCompletion(emitter, message, questionType, contexts, intent);
-                emitter.complete();
-            } catch (Exception ex) {
-                try {
-                    emitter.send(SseEmitter.event()
-                            .name("error")
-                            .data(ex.getMessage()));
-                } catch (IOException ignored) {}
-                emitter.completeWithError(ex);
-            }
-        });
+        emitter.send(SseEmitter.event()
+                .name("meta")
+                .data(mapper.writeValueAsString(Map.of(
+                        "questionType", questionType,
+                        "citations", citations,
+                        "llmEnabled", true,
+                        "intent", intent
+                ))));
+        streamCompletion(emitter, message, questionType, contexts, intent, priorUserMessages);
+        emitter.complete();
+    }
 
-        return emitter;
+    /**
+     * Stream answer tokens only (no meta/done/complete). Used after tool-gather so the UI
+     * gets real LLM streaming instead of a blocked fake chunk dump.
+     */
+    public void streamAnswerTokens(SseEmitter emitter, String question, String questionType,
+                                   List<Map<String, Object>> contexts, String intent,
+                                   List<String> priorUserMessages) throws Exception {
+        if (!configured() || contexts == null || contexts.isEmpty()) {
+            String fallback = contexts == null || contexts.isEmpty()
+                    ? "未检索到可用资料。请确认已构建知识库，或换一种问法后重试。"
+                    : sanitizeAnswer(buildFallback(question, questionType, contexts, intent));
+            emitter.send(SseEmitter.event()
+                    .name("token")
+                    .data(mapper.writeValueAsString(Map.of("content", fallback))));
+            return;
+        }
+        streamCompletion(emitter, question, questionType, contexts, intent, priorUserMessages);
     }
 
     private void streamCompletion(SseEmitter emitter, String question, String questionType,
-                                   List<Map<String, Object>> contexts, String intent) throws Exception {
+                                   List<Map<String, Object>> contexts, String intent,
+                                   List<String> priorUserMessages) throws Exception {
         LlmConfigService.LlmSettings llm = configService.current();
-        String contextText = contexts.stream()
-                .map(c -> "[" + c.getOrDefault("sourceType", "code") + " | "
-                        + c.get("file") + ":" + c.get("line") + "]\n" + c.get("content"))
-                .reduce((a, b) -> a + "\n\n" + b)
-                .orElse("");
-
-        String intentInstruction = intent.contains("branches")
-                ? "这是分支问题：必须依据 branch_list 上下文列出分支名，并用 aheadOfDefault/behindDefault/relation/littleUniqueContent 判断落后或几乎无独有内容。不要说看不到分支。"
-                : intent.contains("portfolio")
-                ? "这是多仓库问题：必须依据 portfolio 上下文列出具体仓库全名，区分「几乎没有内容/未索引」与「可能落后」。不要说无法判断，除非 portfolio 上下文缺失。"
-                : intent.contains("history")
-                ? "历史问题必须逐条覆盖上下文中的 commit。emptyChange=true 可视为无文件变更的空合并；证据不足时标为无法判断。"
-                : intent.contains("api")
-                ? "接口问题优先依据 api_spec 上下文，列出 HTTP 方法、路径、用途和鉴权。"
-                : intent.contains("deployment")
-                ? "部署问题只依据实际配置和启动脚本，区分开发启动与生产部署。"
-                : "优先使用结构化仓库信息和相关源码回答。";
-
-        String systemPrompt = "你是开源仓库维护助手 RepoPilot。只能根据给定上下文回答，无法确定时明确说明。"
-                + "回答使用中文，并引用相关文件路径、仓库全名、分支名或 commit SHA。" + intentInstruction;
-        String userPrompt = "查询意图: " + intent + "\n问题类型: " + questionType
-                + "\n用户问题: " + question + "\n\n上下文:\n" + contextText
-                + "\n\n请直接、完整回答，不要描述自己缺少未要求的数据。";
+        PromptPair prompts = buildAnswerPrompts(question, contexts, intent, priorUserMessages);
 
         String apiKey = llm.apiKey();
         String baseUrl = llm.baseUrl().replaceAll("/$", "");
@@ -374,8 +483,8 @@ public class LlmService {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", llm.model());
         body.put("messages", List.of(
-                Map.of("role", "system", "content", systemPrompt),
-                Map.of("role", "user", "content", userPrompt)
+                Map.of("role", "system", "content", prompts.system()),
+                Map.of("role", "user", "content", prompts.user())
         ));
         body.put("temperature", 0.2);
         body.put("max_tokens", 3000);
@@ -409,9 +518,7 @@ public class LlmService {
             } catch (Exception ignored) {
                 // keep empty
             }
-            emitter.send(SseEmitter.event()
-                    .name("error")
-                    .data(formatLlmHttpError(responseCode, errBody, llm.model())));
+            sendError(emitter, formatLlmHttpError(responseCode, errBody, llm.model()));
             return;
         }
 
@@ -427,9 +534,7 @@ public class LlmService {
                     try {
                         JsonNode chunk = mapper.readTree(data);
                         if (chunk.has("error")) {
-                            emitter.send(SseEmitter.event()
-                                    .name("error")
-                                    .data(formatLlmApiError(chunk.path("error"), llm.model())));
+                            sendError(emitter, formatLlmApiError(chunk.path("error"), llm.model()));
                             return;
                         }
                         JsonNode delta = chunk.path("choices").path(0).path("delta");
@@ -448,19 +553,28 @@ public class LlmService {
                 }
             }
             if (fullContent.isEmpty()) {
-                emitter.send(SseEmitter.event()
-                        .name("error")
-                        .data("LLM 返回了空内容（模型: " + llm.model()
-                                + "）。请确认模型可用，推荐 openai/gpt-oss-20b:free"));
+                sendError(emitter, "LLM 返回了空内容（模型: " + llm.model()
+                        + "）。请确认模型可用，推荐 openai/gpt-oss-20b:free");
                 return;
             }
-            // 发送完成信号
+            String cleaned = sanitizeAnswer(fullContent.toString());
             emitter.send(SseEmitter.event()
                     .name("done")
-                    .data(mapper.writeValueAsString(Map.of("answer", fullContent.toString()))));
+                    .data(mapper.writeValueAsString(Map.of("answer", cleaned))));
         } finally {
             conn.disconnect();
         }
+    }
+
+    /** Strip Markdown bold markers; keep newlines for readable plain text. */
+    static String sanitizeAnswer(String text) {
+        if (text == null || text.isBlank()) {
+            return text == null ? "" : text;
+        }
+        String out = text.replace("**", "");
+        // collapse accidental leftover single emphasis runs like *word* used as bold
+        out = out.replaceAll("(?m)^#{1,6}\\s+", "");
+        return out.trim();
     }
 
 }

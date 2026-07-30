@@ -32,7 +32,7 @@ function Stop-ExistingBackend {
         }
     }
 
-    # Wait until the jar is unlocked (common Windows rename failure during mvn repackage).
+    # Wait until the jar is unlocked (common Windows rename failure during mvnw repackage).
     $jar = Join-Path $PSScriptRoot "target\repopilot-backend-1.0.0.jar"
     $deadline = (Get-Date).AddSeconds(20)
     while ((Test-Path $jar) -and ((Get-Date) -lt $deadline)) {
@@ -63,8 +63,13 @@ try {
     Write-Warning "CodeWiki is not reachable at $codeWikiUrl. Knowledge build/search will fail until you run: docker compose up -d postgres codewiki"
 }
 
-Write-Host "Building backend package..." -ForegroundColor Cyan
-mvn -q package "-DskipTests"
+Write-Host "Building backend package (Maven Wrapper)..." -ForegroundColor Cyan
+$mvnw = Join-Path $PSScriptRoot "mvnw.cmd"
+if (-not (Test-Path $mvnw)) {
+    Write-Host "Maven Wrapper not found: $mvnw" -ForegroundColor Red
+    exit 1
+}
+& $mvnw -q package "-DskipTests"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed. If the jar is locked, stop other Java processes and retry." -ForegroundColor Red
     exit 1

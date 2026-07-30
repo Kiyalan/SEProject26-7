@@ -62,6 +62,12 @@ public class IssueAnalysis {
     @Column(name = "issue_project", length = 255)
     private String issueProject = "";
 
+    @Column(name = "replied")
+    private Boolean replied = false;
+
+    @Column(name = "replied_at", length = 32)
+    private String repliedAt = "";
+
     public String getIssueId() {
         return issueId;
     }
@@ -180,5 +186,21 @@ public class IssueAnalysis {
 
     public void setIssueProject(String issueProject) {
         this.issueProject = issueProject;
+    }
+
+    public Boolean getReplied() {
+        return replied;
+    }
+
+    public void setReplied(Boolean replied) {
+        this.replied = replied;
+    }
+
+    public String getRepliedAt() {
+        return repliedAt;
+    }
+
+    public void setRepliedAt(String repliedAt) {
+        this.repliedAt = repliedAt;
     }
 }

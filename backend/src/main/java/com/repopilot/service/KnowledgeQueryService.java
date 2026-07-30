@@ -20,6 +20,8 @@ public class KnowledgeQueryService {
     private static final List<String> DEPLOY_PATH_HINTS = List.of(
             "readme", "run.ps1", "application.yml", "application.yaml", "package.json",
             "pom.xml", "vite.config", "dockerfile", "docker-compose", ".env");
+    private static final List<String> OVERVIEW_PATH_HINTS = List.of(
+            "readme", "README.md", "README", "package.json", "pom.xml", "docker-compose");
 
     private final KnowledgeService knowledgeService;
     private final PortfolioService portfolioService;
@@ -30,11 +32,18 @@ public class KnowledgeQueryService {
     }
 
     public QueryResult retrieve(String repoId, String question, String ownerLogin) {
-        return retrieve(repoId, question, ownerLogin, null);
+        return retrieve(repoId, question, ownerLogin, null, List.of());
     }
 
     public QueryResult retrieve(String repoId, String question, String ownerLogin, String githubToken) {
-        String lower = question.toLowerCase();
+        return retrieve(repoId, question, ownerLogin, githubToken, List.of());
+    }
+
+    public QueryResult retrieve(String repoId, String question, String ownerLogin, String githubToken,
+                                List<String> priorUserMessages) {
+        // Retrieval query may include prior turns so follow-ups like「该类还有哪些方法」resolve.
+        String retrievalQuestion = expandWithHistory(question, priorUserMessages);
+        String lower = retrievalQuestion.toLowerCase();
         Set<String> intents = new LinkedHashSet<>();
         if (containsAny(lower, "commit", "提交", "版本历史", "提交历史", "弃用", "废弃", "采用",
                 "revert", "回滚", "无效", "过时", "空合并")) {
@@ -47,16 +56,30 @@ public class KnowledgeQueryService {
                 "deploy", "deployment", "start", "install", "environment variable")) {
             intents.add("deployment");
         }
-        if (containsAny(lower, "项目目的", "主要目的", "主要功能", "项目介绍", "是什么项目",
-                "主要内容", "项目内容", "purpose", "project overview", "about this project")
-                || (containsAny(lower, "做什么") && !lower.contains("分支") && !lower.contains("branch"))) {
+        if (isOverviewQuestion(lower) && !isSpecificTypeQuestion(retrievalQuestion)) {
             intents.add("overview");
+        }
+        if (isSpecificTypeQuestion(retrievalQuestion)
+                || containsAny(lower, "哪些方法", "所有方法", "有哪些方法", "方法列表", "源码", "原代码")) {
+            intents.add("code");
         }
         if (containsAny(lower, "参与者", "贡献者", "collaborator", "contributor", "作者", "谁写的", "维护者")) {
             intents.add("history");
         }
+        if (containsAny(lower, "哪些文件", "所有文件", "有哪些文件", "文件列表", "文件清单", "list files", "all files")) {
+            intents.add("graph_files");
+        }
+        if (containsAny(lower, "调用者", "被谁调用", "谁调用", "调用了谁", "caller", "callee",
+                "影响范围", "impact", "依赖关系", "who calls", "depends on")) {
+            intents.add("graph_deps");
+        }
         if (lower.contains("分支") || lower.contains("branch")) {
             intents.add("branches");
+        }
+        if (containsAny(lower, "构建知识库", "知识库构建", "知识库是否", "知识库有没有",
+                "是否构建", "有没有构建", "还没有构建", "尚未构建", "有没有索引",
+                "是否已索引", "知识库就绪", "知识库准备好")) {
+            intents.add("knowledge_status");
         }
         if (containsAny(lower, "哪些仓库", "哪个仓库", "仓库列表", "几乎没有内容", "空仓库", "没有内容",
                 "与main", "与 main", "版本落后", "落后很多", "无关", "portfolio", "repos",
@@ -70,6 +93,15 @@ public class KnowledgeQueryService {
         }
 
         List<Map<String, Object>> contexts = new ArrayList<>();
+        // Only inject status evidence when the user actually asks about knowledge readiness.
+        if (intents.contains("knowledge_status")) {
+            try {
+                contexts.add(knowledgeService.knowledgeStatusContext(repoId, ownerLogin));
+            } catch (Exception ex) {
+                contexts.add(systemNotice("knowledge/status",
+                        "无法读取知识库状态：" + ex.getMessage()));
+            }
+        }
         try {
             if (intents.contains("branches")) {
                 contexts.addAll(knowledgeService.branchContexts(repoId, ownerLogin));
@@ -78,32 +110,57 @@ public class KnowledgeQueryService {
                 contexts.addAll(portfolioContexts(githubToken, ownerLogin));
             }
             if (intents.contains("history")) {
-                contexts.addAll(knowledgeService.commitHistoryContexts(repoId, ownerLogin, requestedCommitCount(question)));
+                contexts.addAll(knowledgeService.commitHistoryContexts(repoId, ownerLogin, requestedCommitCount(retrievalQuestion)));
+            }
+            if (intents.contains("graph_files")) {
+                contexts.addAll(knowledgeService.graphFileInventoryContexts(repoId, ownerLogin, 40));
+            }
+            if (intents.contains("graph_deps")) {
+                contexts.addAll(knowledgeService.relationshipContexts(repoId, ownerLogin, retrievalQuestion));
             }
             if (intents.contains("overview")) {
                 contexts.add(knowledgeService.repositoryOverviewContext(repoId, ownerLogin));
                 contexts.addAll(knowledgeService.retrieveChunksByPathHints(
-                        repoId, ownerLogin, question + " 项目说明 README",
-                        List.of("readme", "openapi", "package.json", "pom.xml"), 8));
+                        repoId, ownerLogin, retrievalQuestion + " 项目介绍 目的 架构 模块 结构",
+                        OVERVIEW_PATH_HINTS, 10));
+                contexts.addAll(knowledgeService.graphRagContexts(
+                        repoId, ownerLogin, retrievalQuestion + " 项目说明 README 架构 模块 主流程", 10));
             }
             if (intents.contains("api")) {
-                contexts.addAll(knowledgeService.apiSpecificationContexts(repoId, ownerLogin, 100));
-                if (contexts.stream().noneMatch(row -> "api_spec".equals(row.get("sourceType")))) {
+                contexts.addAll(knowledgeService.graphRagContexts(
+                        repoId, ownerLogin, retrievalQuestion + " API endpoints controllers OpenAPI", 12));
+                if (contexts.stream().noneMatch(row ->
+                        "graph_rag_answer".equals(row.get("sourceType"))
+                                || "graph_explore".equals(row.get("sourceType"))
+                                || "api_spec".equals(row.get("sourceType"))
+                                || "source_code".equals(row.get("sourceType")))) {
                     contexts.addAll(knowledgeService.retrieveChunksByPathHints(
-                            repoId, ownerLogin, question + " controller endpoint operationId", API_PATH_HINTS, 15));
+                            repoId, ownerLogin, retrievalQuestion + " controller endpoint operationId", API_PATH_HINTS, 8));
                 }
             }
             if (intents.contains("deployment")) {
+                contexts.addAll(knowledgeService.graphRagContexts(
+                        repoId, ownerLogin, retrievalQuestion + " 启动 部署 docker compose", 8));
                 contexts.addAll(knowledgeService.retrieveChunksByPathHints(
-                        repoId, ownerLogin, question + " 启动 配置 端口 环境变量", DEPLOY_PATH_HINTS, 15));
+                        repoId, ownerLogin, retrievalQuestion + " 启动 配置 端口 环境变量", DEPLOY_PATH_HINTS, 8));
             }
-            // Avoid drowning structured answers in random frontend page chunks.
-            if ((intents.contains("code")
+            // Prefer GraphRAG for code questions. Status-only / structured-only skip heavy explore.
+            boolean statusOnly = intents.contains("knowledge_status")
+                    && !intents.contains("code")
+                    && !intents.contains("overview")
+                    && !intents.contains("api")
+                    && !intents.contains("deployment")
+                    && !intents.contains("history")
+                    && !intents.contains("portfolio")
+                    && !intents.contains("branches");
+            // Specific class/method questions must use the raw question (not README-biased overview query).
+            if (!statusOnly && intents.contains("code")
                     && !intents.contains("portfolio")
                     && !intents.contains("history")
-                    && !intents.contains("branches"))
-                    || contexts.isEmpty()) {
-                contexts.addAll(knowledgeService.retrieveChunks(repoId, ownerLogin, question, null, 10));
+                    && !intents.contains("branches")) {
+                contexts.addAll(knowledgeService.graphRagContexts(repoId, ownerLogin, retrievalQuestion, 20));
+            } else if (!statusOnly && contexts.isEmpty()) {
+                contexts.addAll(knowledgeService.graphRagContexts(repoId, ownerLogin, retrievalQuestion, 16));
             }
         } catch (Exception ex) {
             Map<String, Object> notice = new LinkedHashMap<>();
@@ -119,7 +176,7 @@ public class KnowledgeQueryService {
 
         contexts.removeIf(KnowledgeQueryService::isLowValueContext);
         int bound = intents.contains("history") || intents.contains("portfolio") || intents.contains("branches")
-                ? 60 : 45;
+                ? 60 : 55;
         List<Map<String, Object>> deduplicated = deduplicateAndBound(contexts, bound);
         return new QueryResult(String.join("+", intents), deduplicated);
     }
@@ -231,7 +288,12 @@ public class KnowledgeQueryService {
         String sourceType = String.valueOf(row.getOrDefault("sourceType", ""));
         if ("portfolio".equals(sourceType) || "commit_history".equals(sourceType)
                 || "branch_list".equals(sourceType)
-                || "system".equals(sourceType) || "repository_overview".equals(sourceType)) {
+                || "graph_explore".equals(sourceType) || "graph_rag_answer".equals(sourceType)
+                || "community".equals(sourceType) || "graph_nodes".equals(sourceType)
+                || "graph_relationships".equals(sourceType)
+                || "system".equals(sourceType) || "repository_overview".equals(sourceType)
+                || "knowledge_status".equals(sourceType)
+                || "source_code".equals(sourceType) || "code".equals(sourceType)) {
             return false;
         }
         String file = String.valueOf(row.getOrDefault("file", "")).toLowerCase().replace('\\', '/');
@@ -247,17 +309,20 @@ public class KnowledgeQueryService {
     }
 
     private List<Map<String, Object>> deduplicateAndBound(List<Map<String, Object>> rows, int maxItems) {
+        // Prefer real source excerpts over structural summaries when budgeting context.
+        List<Map<String, Object>> ordered = new ArrayList<>(rows);
+        ordered.sort((a, b) -> Integer.compare(sourcePriority(b), sourcePriority(a)));
         Map<String, Map<String, Object>> unique = new LinkedHashMap<>();
         int totalChars = 0;
-        for (Map<String, Object> row : rows) {
+        for (Map<String, Object> row : ordered) {
             String key = row.getOrDefault("file", "") + ":" + row.getOrDefault("line", 0)
                     + ":" + row.getOrDefault("symbolName", "");
             if (unique.containsKey(key)) {
                 continue;
             }
             String content = String.valueOf(row.getOrDefault("content", ""));
-            if (!unique.isEmpty() && totalChars + content.length() > 48_000) {
-                break;
+            if (!unique.isEmpty() && totalChars + content.length() > 64_000) {
+                continue;
             }
             unique.put(key, row);
             totalChars += content.length();
@@ -266,6 +331,29 @@ public class KnowledgeQueryService {
             }
         }
         return new ArrayList<>(unique.values());
+    }
+
+    private static int sourcePriority(Map<String, Object> row) {
+        String type = String.valueOf(row.getOrDefault("sourceType", ""));
+        String retrieval = String.valueOf(row.getOrDefault("retrievalType", ""));
+        // Communities orient Q&A; concrete source/API still win when present.
+        if ("local_api".equals(retrieval)) {
+            return 110;
+        }
+        if ("local_file".equals(retrieval)) {
+            return 100;
+        }
+        if ("graphrag_chunk".equals(retrieval) || "graphrag_pack".equals(retrieval)) {
+            return 108;
+        }
+        return switch (type) {
+            case "source_code", "code" -> 100;
+            case "graph_nodes", "graph_relationships" -> 95;
+            case "community" -> 88;
+            case "repository_overview" -> 80;
+            case "graph_explore" -> 45;
+            default -> 50;
+        };
     }
 
     private int requestedCommitCount(String question) {
@@ -277,6 +365,10 @@ public class KnowledgeQueryService {
     }
 
     private boolean containsAny(String value, String... terms) {
+        return containsAnyStatic(value, terms);
+    }
+
+    private static boolean containsAnyStatic(String value, String... terms) {
         for (String term : terms) {
             if (value.contains(term)) {
                 return true;
@@ -284,6 +376,65 @@ public class KnowledgeQueryService {
         }
         return false;
     }
+
+    private static String expandWithHistory(String question, List<String> priorUserMessages) {
+        if (priorUserMessages == null || priorUserMessages.isEmpty()) {
+            return question;
+        }
+        StringBuilder sb = new StringBuilder();
+        int from = Math.max(0, priorUserMessages.size() - 3);
+        for (int i = from; i < priorUserMessages.size(); i++) {
+            String prior = priorUserMessages.get(i);
+            if (prior == null || prior.isBlank()) {
+                continue;
+            }
+            sb.append(prior.trim()).append('\n');
+        }
+        sb.append(question == null ? "" : question.trim());
+        return sb.toString();
+    }
+
+    private boolean isOverviewQuestion(String lower) {
+        if (containsAny(lower,
+                "项目目的", "项目的目的", "该项目的目的", "主要目的", "主要功能",
+                "项目介绍", "介绍项目", "是什么项目", "项目是什么", "主要内容", "项目内容",
+                "项目结构", "代码结构", "目录结构", "模块结构", "仓库结构",
+                "项目架构", "整体架构", "系统架构", "模块划分",
+                "主链路", "主要链路", "核心链路", "调用链", "主流程", "主要流程",
+                "purpose", "project overview", "about this project", "architecture",
+                "project structure", "what does this project")) {
+            return true;
+        }
+        // 「这个项目在做什么」— but NOT 「KnowledgeService在做什么」
+        if (containsAny(lower, "做什么", "干什么")
+                && !lower.contains("分支") && !lower.contains("branch")
+                && containsAny(lower, "项目", "仓库", "系统", "本仓库", "这个库", "当前项目")
+                && !isSpecificTypeQuestion(lower)) {
+            return true;
+        }
+        boolean aboutProject = containsAny(lower, "项目", "仓库", "系统", "本仓库", "这个库");
+        return aboutProject && containsAny(lower, "目的", "结构", "架构", "链路", "流程", "介绍")
+                && !isSpecificTypeQuestion(lower);
+    }
+
+    /** True when the user is asking about a concrete type like KnowledgeService / XxxController. */
+    static boolean isSpecificTypeQuestion(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        if (TYPE_SUFFIX.matcher(text).find()) {
+            return true;
+        }
+        String lower = text.toLowerCase();
+        // Bare PascalCase only counts when the question is clearly about that type's API/source.
+        return containsAnyStatic(lower, "方法", "类", "源码", "原代码", "签名")
+                && TYPE_PASCAL.matcher(text).find();
+    }
+
+    private static final Pattern TYPE_SUFFIX = Pattern.compile(
+            "(?i)\\b[a-z][a-z0-9]*(?:Service|Controller|Client|Utils|Store|Manager|Handler|Repository|Config)\\b");
+    private static final Pattern TYPE_PASCAL = Pattern.compile(
+            "\\b[A-Z][a-zA-Z0-9]{2,}(?:Service|Controller|Client|Utils|Store|Manager|Handler|Repository)?\\b");
 
     public record QueryResult(String intent, List<Map<String, Object>> contexts) {}
 }
