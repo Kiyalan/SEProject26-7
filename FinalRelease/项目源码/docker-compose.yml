@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: codewiki
+      POSTGRES_USER: codewiki
+      POSTGRES_PASSWORD: ${CODEWIKI_POSTGRES_PASSWORD:-codewiki}
+    volumes:
+      - codewiki-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codewiki -d codewiki"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  codewiki:
+    build:
+      context: ./services/codewiki
+    image: seproject26-7-codewiki:0.6.5
+    environment:
+      CODEWIKI_DATABASE_URL: postgresql+psycopg://codewiki:${CODEWIKI_POSTGRES_PASSWORD:-codewiki}@postgres:5432/codewiki
+      CODEWIKI_STORAGE_DIR: /app/storage
+      CODEWIKI_NO_KEYRING: "1"
+      CODEWIKI_LLM__MODE: ${CODEWIKI_LLM__MODE:-sdk}
+      CODEWIKI_LLM__DEFAULT__MODEL: ${CODEWIKI_LLM__DEFAULT__MODEL:-}
+      CODEWIKI_LLM__DEFAULT__PROVIDER_TYPE: ${CODEWIKI_LLM__DEFAULT__PROVIDER_TYPE:-}
+      CODEWIKI_LLM__DEFAULT__ENDPOINT: ${CODEWIKI_LLM__DEFAULT__ENDPOINT:-}
+      CODEWIKI_LLM__DEFAULT__API_KEY: ${CODEWIKI_LLM__DEFAULT__API_KEY:-}
+      CODEWIKI_LLM__PROFILES__EMBEDDING__MODEL: ${CODEWIKI_LLM__PROFILES__EMBEDDING__MODEL:-}
+      CODEWIKI_LLM__PROFILES__EMBEDDING__PROVIDER_TYPE: ${CODEWIKI_LLM__PROFILES__EMBEDDING__PROVIDER_TYPE:-}
+      CODEWIKI_LLM__PROFILES__EMBEDDING__ENDPOINT: ${CODEWIKI_LLM__PROFILES__EMBEDDING__ENDPOINT:-}
+      CODEWIKI_LLM__PROFILES__EMBEDDING__API_KEY: ${CODEWIKI_LLM__PROFILES__EMBEDDING__API_KEY:-}
+      # Longer LLM timeout + cache reduce mid-wiki / mid-community flakiness
+      CODEWIKI_LLM__TIMEOUT_SECONDS: ${CODEWIKI_LLM__TIMEOUT_SECONDS:-180}
+      CODEWIKI_LLM__MAX_RETRIES: ${CODEWIKI_LLM__MAX_RETRIES:-3}
+      CODEWIKI_LLM__CACHE_ENABLED: ${CODEWIKI_LLM__CACHE_ENABLED:-true}
+      # Extra excludes for large repos / Windows bind-mount slowness
+      CODEWIKI_EXTRA_EXCLUDES: ${CODEWIKI_EXTRA_EXCLUDES:-target,node_modules,dist,build,coverage,.git,.idea,.vscode,package-lock.json,yarn.lock,pnpm-lock.yaml,*.min.js,*.min.css,*.map,*.jar,*.war,*.class,*.pdf,*.png,*.jpg,*.jpeg,*.gif,*.webp,*.ico,*.mp4,*.zip,UIPrototype,.mvn}
+      # Sequential AST parse — threaded tree-sitter often SIGSEGV (exit 139) in Docker
+      CODEWIKI_AST_PARSE_WORKERS: ${CODEWIKI_AST_PARSE_WORKERS:-1}
+      # Parse each file in a subprocess; skip files that SIGSEGV instead of failing the run
+      CODEWIKI_AST_PARSE_ISOLATE: ${CODEWIKI_AST_PARSE_ISOLATE:-1}
+      # Extra gitignore-style patterns (comma-separated) applied on top of CodeWiki defaults
+      CODEWIKI_EXTRA_IGNORES: ${CODEWIKI_EXTRA_IGNORES:-**/generated/,**/*.gen.ts,**/*.gen.tsx,**/*.gen.js}
+      # Standard GraphRAG: Leiden on AST entity graph (louvain|leiden)
+      CODEWIKI_COMMUNITY_ALGORITHM: ${CODEWIKI_COMMUNITY_ALGORITHM:-leiden}
+      # pgvector HNSW: auto uses halfvec when embedding dims > 2000 (e.g. Qwen3-4B 2560)
+      CODEWIKI_PGVECTOR_HALFVEC: ${CODEWIKI_PGVECTOR_HALFVEC:-auto}
+      # Container-local build/query JSONL traces under /app/storage/logs
+      CODEWIKI_OPS_TRACE: ${CODEWIKI_OPS_TRACE:-1}
+      CODEWIKI_OPS_TRACE_CONTENT_CHARS: ${CODEWIKI_OPS_TRACE_CONTENT_CHARS:-12000}
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - codewiki-storage:/app/storage
+      - ./backend/data/repos:/workspace/repositories/SEProject26-7/backend/data/repos:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Prefer compose-only healthchecks; image HEALTHCHECK disabled to avoid double probes.
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "--max-time", "25", "http://127.0.0.1:8000/api/health"]
+      interval: 60s
+      timeout: 30s
+      start_period: 180s
+      retries: 10
+    # Give in-flight analyze time to finish before SIGKILL
+    stop_grace_period: 2m
+    # Do not auto-restart on manual stop; still recover from crashes
+    restart: on-failure:3
+
+volumes:
+  codewiki-postgres-data:
+  codewiki-storage:
