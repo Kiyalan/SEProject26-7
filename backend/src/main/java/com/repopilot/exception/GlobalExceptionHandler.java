@@ -53,8 +53,12 @@ public class GlobalExceptionHandler {
 
     private String firstUsefulFrame(NullPointerException ex) {
         for (StackTraceElement frame : ex.getStackTrace()) {
-            if (frame.getClassName().startsWith("com.repopilot.")) {
-                return frame.getClassName() + "." + frame.getMethodName() + ":" + frame.getLineNumber();
+            String className = frame.getClassName();
+            if (className.startsWith("com.repopilot.") &&
+                !className.contains("ExceptionHandler") &&
+                !className.contains("$Lambda") &&
+                !className.contains("Test")) {
+                return className + "." + frame.getMethodName() + ":" + frame.getLineNumber();
             }
         }
         return "unknown";

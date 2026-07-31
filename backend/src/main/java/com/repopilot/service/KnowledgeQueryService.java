@@ -172,6 +172,10 @@ public class KnowledgeQueryService {
         }
 
         contexts.removeIf(KnowledgeQueryService::isLowValueContext);
+        if (contexts.isEmpty()) {
+            contexts.add(systemNotice("knowledge/unavailable",
+                    "知识库暂不可用或未返回可用上下文。请先构建知识库并确认 CodeWiki 已启动。"));
+        }
         int bound = intents.contains("history") || intents.contains("portfolio") || intents.contains("branches")
                 ? 80 : 60;
         List<Map<String, Object>> deduplicated = deduplicateAndBound(contexts, bound);

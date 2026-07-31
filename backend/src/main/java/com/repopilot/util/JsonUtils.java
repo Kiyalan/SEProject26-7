@@ -14,6 +14,9 @@ public final class JsonUtils {
     }
 
     public static String toJson(Object value) {
+        if (value == null) {
+            return "{}";
+        }
         try {
             return MAPPER.writeValueAsString(value);
         } catch (Exception ex) {
