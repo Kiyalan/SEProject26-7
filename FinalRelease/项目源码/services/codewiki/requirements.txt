@@ -1,0 +1,17 @@
+codewiki==0.6.5
+litellm<1.93.0
+
+# Cap tree-sitter core below 0.26: 0.26 changed Node/Point ABI while many
+# grammar wheels remain on the 0.25 line, which causes nondeterministic
+# SIGSEGV/SIGBUS during AstParser symbol extraction (see code-context-engine
+# #115 / GitNexus tree-sitter ABI segfaults). Keep WORKERS=1 + PARSE_ISOLATE.
+tree-sitter>=0.25.0,<0.26
+tree-sitter-java>=0.23.5,<0.24
+tree-sitter-python>=0.25.0,<0.26
+tree-sitter-typescript>=0.23.2,<0.24
+tree-sitter-javascript>=0.25.0,<0.26
+tree-sitter-go>=0.25.0,<0.26
+tree-sitter-rust>=0.24.2,<0.25
+tree-sitter-c>=0.24.2,<0.25
+tree-sitter-cpp>=0.23.4,<0.24
+tree-sitter-c-sharp>=0.23.5,<0.24
