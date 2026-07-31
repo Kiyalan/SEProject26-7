@@ -37,6 +37,11 @@ data/
 *.log
 logs/
 
+# Performance testing (JMeter binary + generated reports)
+perf/tools/
+perf/results/
+perf/.env
+
 # IDE / OS
 .idea/
 .vscode/
