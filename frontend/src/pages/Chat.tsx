@@ -336,6 +336,7 @@ export default function Chat() {
       if (!isCurrentChatRequest(currentRepoId, seq)) return
       if ((err as Error).name === 'AbortError') {
         endChatRequest(currentRepoId, seq, null)
+        patchChatSession(currentRepoId, { input: trimmed })
         return
       }
       ensureAssistantBubble(assistId, {

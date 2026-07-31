@@ -6,6 +6,7 @@ export type ChatSessionState = {
   statusMessage: string | null
   lastFailedQuestion: string | null
   input: string
+  requestSeq: number
 }
 
 type Listener = () => void
@@ -32,6 +33,7 @@ const EMPTY_SNAPSHOT: ChatSessionState = {
   statusMessage: null,
   lastFailedQuestion: null,
   input: '',
+  requestSeq: 0,
 }
 
 function storageKey(repoId: string) {
@@ -67,6 +69,7 @@ function refreshSnapshot(session: Session) {
     statusMessage: session.statusMessage,
     lastFailedQuestion: session.lastFailedQuestion,
     input: session.input,
+    requestSeq: session.requestSeq,
   }
 }
 
@@ -96,8 +99,26 @@ function notify(session: Session) {
   session.listeners.forEach((fn) => fn())
 }
 
+function getOrHydrateSession(repoId: string): Session {
+  const session = ensure(repoId)
+  if (
+    repoId !== '__none__' &&
+    session.messages.length === 0 &&
+    session.input === '' &&
+    !session.loading &&
+    session.statusMessage === null
+  ) {
+    const persisted = loadPersisted(repoId)
+    if (persisted.length > 0) {
+      session.messages = persisted
+      refreshSnapshot(session)
+    }
+  }
+  return session
+}
+
 export function getChatSession(repoId: string): ChatSessionState {
-  return ensure(repoId).snapshot
+  return getOrHydrateSession(repoId).snapshot
 }
 
 export function subscribeChatSession(repoId: string, listener: Listener): () => void {

@@ -114,10 +114,10 @@ class KnowledgeQueryServiceExtendedTest {
     void TC010_handlesKnowledgeServiceExceptionGracefully() {
         KnowledgeService knowledge = mock(KnowledgeService.class);
         PortfolioService portfolio = mock(PortfolioService.class);
-        
-        when(knowledge.retrieveChunks(anyString(), anyString(), anyString(), any(), anyInt()))
+
+        when(knowledge.localSearchContexts(anyString(), anyString(), anyString(), anyInt()))
                 .thenThrow(new RuntimeException("知识库未就绪"));
-        
+
         KnowledgeQueryService service = new KnowledgeQueryService(knowledge, portfolio);
         KnowledgeQueryService.QueryResult result = service.retrieve(
                 "repo", "代码结构是什么？", "owner");
