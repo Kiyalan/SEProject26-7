@@ -131,6 +131,15 @@ chmod +x start-dev.sh backend/run.sh backend/mvnw
 - 知识构建只索引当前 **HEAD**；历史 commit 用 JGit log/diff，不做逐 commit GraphRAG。
 - Wiki **按需**生成，不在每次 build 时自动全量跑。
 
+## 性能测试（JMeter）
+
+使用 Apache JMeter 绕过前端 GitHub OAuth，直接压测后端 API，对比 TinyTestRepo / SEProject26-7 在 **1 VU** 与 **10 VU** 下的平均响应时间、周转时间与吞吐量。详见 [`perf/README.md`](perf/README.md)。
+
+```powershell
+copy perf\env.example perf\.env   # 填入 GITHUB_USERNAME / GITHUB_TOKEN / JWT_SECRET
+.\perf\scripts\run-perf.ps1
+```
+
 ## 许可证与限制
 
 CodeWiki 0.6.5 为 MIT、Alpha、单用户单实例，适合本地/答辩演示，不宜直接公网多租户部署。
