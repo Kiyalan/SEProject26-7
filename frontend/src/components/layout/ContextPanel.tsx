@@ -100,7 +100,7 @@ export default function ContextPanel() {
         </Card>
       )}
 
-      {/* 模块2：知识库索引（同步双列优化） */}
+      {/* 模块2：知识库索引（同步双列优化，保留代码行数） */}
       {knowledge && knowledge.status === 'ready' && (
         <Card
           variant="outlined"
@@ -124,6 +124,13 @@ export default function ContextPanel() {
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 3 }}>文件数</Text>
               <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>
                 {knowledge.fileCount}
+              </div>
+            </div>
+
+            <div>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 3 }}>代码行数</Text>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>
+                {knowledge.lineCount ?? '—'}
               </div>
             </div>
 

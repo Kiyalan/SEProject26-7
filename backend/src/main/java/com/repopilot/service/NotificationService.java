@@ -121,6 +121,26 @@ public class NotificationService {
         }
     }
 
+    /**
+     * Issue analysis digest — requires master switch AND notifyOnIssueAnalysis.
+     * @return true if an email was actually sent
+     */
+    public boolean notifyIssueAnalysis(String login, String subject, String body) {
+        ensureRow(login);
+        Map<String, Object> settings = load(login);
+        if (!Boolean.TRUE.equals(settings.get("enabled"))) return false;
+        if (!Boolean.TRUE.equals(settings.get("notifyOnIssueAnalysis"))) return false;
+        String email = String.valueOf(settings.getOrDefault("email", "")).trim();
+        if (email.isBlank() || !EMAIL.matcher(email).matches()) return false;
+        if (!mailService.isConfigured()) return false;
+        try {
+            mailService.send(email, "[RepoPilot] " + subject, body);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private String resolveLogin(String token) {
         JsonNode user = github.get("/user", token);
         String login = user.path("login").asText("").trim();

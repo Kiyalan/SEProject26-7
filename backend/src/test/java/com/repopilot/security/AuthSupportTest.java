@@ -1,6 +1,7 @@
 package com.repopilot.security;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -11,10 +12,43 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AuthSupportTest {
 
+    private JwtUtil jwtUtil;
+
+    @BeforeEach
+    void setUp() {
+        jwtUtil = new JwtUtil("unit-test-jwt-secret-at-least-32-bytes!!", 24);
+        AuthSupport.setJwtUtil(jwtUtil);
+    }
+
     @AfterEach
-    void cleanup() {
+    void tearDown() {
         AuthSupport.setJwtUtil(null);
     }
+
+    // ===== main 上的核心用例 =====
+
+    @Test
+    void rejectsMissingAuthorizationHeader() {
+        assertThatThrownBy(() -> AuthSupport.requireToken(null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("未登录");
+    }
+
+    @Test
+    void acceptsValidJwtAndReturnsGithubToken() {
+        String jwt = jwtUtil.createToken("alice", "gho_test_token");
+        assertThat(AuthSupport.requireToken("Bearer " + jwt)).isEqualTo("gho_test_token");
+        assertThat(AuthSupport.requireUsername("Bearer " + jwt)).isEqualTo("alice");
+    }
+
+    @Test
+    void rejectsExpiredOrTamperedJwtUsernameLookup() {
+        assertThatThrownBy(() -> AuthSupport.requireUsername("Bearer not-a-valid.jwt.token"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("无效或已过期");
+    }
+
+    // ===== 本分支新增的边界用例 =====
 
     @Test
     void requireToken_withNullJwtUtil_extractsBearerToken() {
@@ -26,9 +60,7 @@ class AuthSupportTest {
 
     @Test
     void requireToken_withJwtUtil_extractsGithubToken() {
-        JwtUtil jwtUtil = new JwtUtil("test-secret-key-that-is-long-enough", 168);
         String jwt = jwtUtil.createToken("user", "github-token-abc");
-        AuthSupport.setJwtUtil(jwtUtil);
 
         String token = AuthSupport.requireToken("Bearer " + jwt);
 
@@ -37,9 +69,6 @@ class AuthSupportTest {
 
     @Test
     void requireToken_withNonJwtFormat_returnsOriginal() {
-        JwtUtil jwtUtil = new JwtUtil("test-secret-key-that-is-long-enough", 168);
-        AuthSupport.setJwtUtil(jwtUtil);
-
         String token = AuthSupport.requireToken("Bearer old-format-token");
 
         assertThat(token).isEqualTo("old-format-token");
@@ -65,9 +94,7 @@ class AuthSupportTest {
 
     @Test
     void requireUsername_withValidJwt() {
-        JwtUtil jwtUtil = new JwtUtil("test-secret-key-that-is-long-enough", 168);
         String jwt = jwtUtil.createToken("testuser", "github-token");
-        AuthSupport.setJwtUtil(jwtUtil);
 
         String username = AuthSupport.requireUsername("Bearer " + jwt);
 
@@ -82,9 +109,7 @@ class AuthSupportTest {
 
     @Test
     void resolveUser_withValidJwt_returnsMap() {
-        JwtUtil jwtUtil = new JwtUtil("test-secret-key-that-is-long-enough", 168);
         String jwt = jwtUtil.createToken("myuser", "mygithubtoken");
-        AuthSupport.setJwtUtil(jwtUtil);
 
         Map<String, String> result = AuthSupport.resolveUser("Bearer " + jwt);
 
@@ -94,9 +119,6 @@ class AuthSupportTest {
 
     @Test
     void resolveUser_withoutJwt_returnsUnknown() {
-        JwtUtil jwtUtil = new JwtUtil("test-secret-key-that-is-long-enough", 168);
-        AuthSupport.setJwtUtil(jwtUtil);
-
         Map<String, String> result = AuthSupport.resolveUser("Bearer old-token");
 
         assertThat(result.get("username")).isEqualTo("unknown");
@@ -105,9 +127,6 @@ class AuthSupportTest {
 
     @Test
     void resolveUser_withInvalidJwt_throws() {
-        JwtUtil jwtUtil = new JwtUtil("test-secret-key-that-is-long-enough", 168);
-        AuthSupport.setJwtUtil(jwtUtil);
-
         assertThatThrownBy(() -> AuthSupport.resolveUser("Bearer invalid.jwt.here"))
                 .isInstanceOf(ResponseStatusException.class);
     }

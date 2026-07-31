@@ -12,7 +12,7 @@ import RepoList from './pages/RepoList'
 import Settings from './pages/Settings'
 
 import AdminProtectedRoute from './components/AdminProtectedRoute'
-import AdminLayout from '../../frontend/src/layouts/AdminLayout'
+import AdminLayout from './layouts/AdminLayout'
 import AdminAuditLogs from './pages/admin/AdminAuditLogs'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminDataIntegrity from './pages/admin/AdminDataIntegrity'

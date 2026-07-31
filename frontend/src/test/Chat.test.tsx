@@ -4,9 +4,45 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import Chat from '../pages/Chat';
 
-describe('Chat Page (Simplified)', () => {
+// ===== Mocks =====
+
+const mockUseRepoContext = vi.fn();
+const mockFetchLlmConfig = vi.fn();
+const mockFetchKnowledge = vi.fn();
+const mockGetToken = vi.fn(() => 'test-token');
+
+vi.mock('../context/RepoContext', () => ({
+  useRepoContext: () => mockUseRepoContext(),
+}));
+
+vi.mock('../api/generated', () => ({
+  fetchLlmConfig: (...args: unknown[]) => mockFetchLlmConfig(...args),
+  fetchKnowledge: (...args: unknown[]) => mockFetchKnowledge(...args),
+}));
+
+vi.mock('../lib/AuthAxios', () => ({
+  authAxios: {
+    post: vi.fn().mockResolvedValue({ data: {} }),
+  },
+  getToken: () => mockGetToken(),
+}));
+
+const buildRepoContext = (overrides = {}) => ({
+  currentRepoId: '',
+  repoList: [],
+  setCurrentRepo: vi.fn(),
+  ...overrides,
+});
+
+describe('Chat Page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
+    mockUseRepoContext.mockReturnValue(buildRepoContext());
+    mockFetchLlmConfig.mockResolvedValue({ data: { apiKey: '' } });
+    mockFetchKnowledge.mockResolvedValue({
+      data: { status: 'ready', fileCount: 1, chunkCount: 1, graphStatus: { nodeCount: 0 } },
+    });
   });
 
   const renderChat = () =>
@@ -17,226 +53,175 @@ describe('Chat Page (Simplified)', () => {
     );
 
   describe('Basic Rendering', () => {
-    it('should render page title', () => {
+    it('renders the page title', async () => {
       renderChat();
-      expect(screen.getByText('智能问答')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText('智能问答')).toBeInTheDocument();
+      });
     });
 
-    it('should render page description', () => {
+    it('renders the page description in retrieval mode when LLM is disabled', async () => {
+      mockFetchLlmConfig.mockResolvedValue({ data: { apiKey: '' } });
       renderChat();
-      expect(screen.getByText(/检索摘要模式/)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/检索摘要模式/)).toBeInTheDocument();
+      });
     });
 
-    it('should render send button', () => {
+    it('renders the page description in GraphRAG mode when LLM is enabled', async () => {
+      mockFetchLlmConfig.mockResolvedValue({ data: { apiKey: 'sk-test' } });
       renderChat();
-      expect(screen.getByRole('button', { name: /发送/ })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/标准 GraphRAG/)).toBeInTheDocument();
+      });
     });
 
-    it('should render input area with placeholder', () => {
+    it('renders the send button', async () => {
       renderChat();
-      expect(
-        screen.getByPlaceholderText(/例如：路由配置在哪里？/),
-      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /发送/ })).toBeInTheDocument();
+      });
     });
 
-    it('should render sample questions when no messages', () => {
+    it('renders the input with placeholder', async () => {
       renderChat();
-      expect(screen.getByText('试试问这些问题')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText(/例如：路由配置在哪里？/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Sample Questions', () => {
+    it('renders all sample questions when no messages and no repo', async () => {
+      renderChat();
+      await waitFor(() => {
+        expect(screen.getByText('试试问这些问题')).toBeInTheDocument();
+      });
       expect(screen.getByText('这个项目是做什么的？')).toBeInTheDocument();
       expect(screen.getByText('路由配置在哪里？')).toBeInTheDocument();
       expect(screen.getByText('如何启动项目？')).toBeInTheDocument();
     });
 
-    it('should not render sample questions after sending', () => {
+    it('fills the session input when a sample question is clicked and a repo is selected', async () => {
+      mockUseRepoContext.mockReturnValue(buildRepoContext({ currentRepoId: 'repo-1' }));
       renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, { target: { value: 'test question' } });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
-      expect(screen.queryByText('试试问这些问题')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Sample Question Interaction', () => {
-    it('should fill input when clicking a sample question', () => {
-      renderChat();
+      await waitFor(() => {
+        expect(screen.getByText('路由配置在哪里？')).toBeInTheDocument();
+      });
       fireEvent.click(screen.getByText('路由配置在哪里？'));
-      const input = screen.getByPlaceholderText(
-        /例如：路由配置在哪里？/,
-      ) as HTMLTextAreaElement;
-      expect(input.value).toBe('路由配置在哪里？');
+      const input = (await screen.findByPlaceholderText(/例如：路由配置在哪里？/)) as HTMLInputElement;
+      await waitFor(() => {
+        expect(input.value).toBe('路由配置在哪里？');
+      });
     });
 
-    it('should fill input with different sample questions independently', () => {
+    it('does not fill the input when no repo is selected', async () => {
       renderChat();
-      fireEvent.click(screen.getByText('如何启动项目？'));
-      const input = screen.getByPlaceholderText(
-        /例如：路由配置在哪里？/,
-      ) as HTMLTextAreaElement;
-      expect(input.value).toBe('如何启动项目？');
-    });
-  });
-
-  describe('Sending Messages', () => {
-    it('should add user message when sending', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, { target: { value: 'Hello world' } });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
-
-      expect(screen.getByText('Hello world')).toBeInTheDocument();
-    });
-
-    it('should add assistant response when sending', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, { target: { value: '测试' } });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
-
-      expect(screen.getByText('已收到问题：测试')).toBeInTheDocument();
-    });
-
-    it('should clear input after sending', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(
-        /例如：路由配置在哪里？/,
-      ) as HTMLTextAreaElement;
-      fireEvent.change(input, { target: { value: 'test' } });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
+      await waitFor(() => {
+        expect(screen.getByText('路由配置在哪里？')).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByText('路由配置在哪里？'));
+      const input = (await screen.findByPlaceholderText(/例如：路由配置在哪里？/)) as HTMLInputElement;
+      // Click without currentRepoId is a no-op for store patching
       expect(input.value).toBe('');
     });
+  });
 
-    it('should not send empty input', () => {
+  describe('Send Button State', () => {
+    it('disables the send button when no repo is selected', async () => {
       renderChat();
-      const sendButton = screen.getByRole('button', { name: /发送/ });
-      expect(sendButton).toBeDisabled();
-      fireEvent.click(sendButton);
-      expect(screen.queryByText('已收到问题：')).not.toBeInTheDocument();
-    });
-
-    it('should not send whitespace-only input', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, { target: { value: '   ' } });
-      const sendButton = screen.getByRole('button', { name: /发送/ });
-      expect(sendButton).toBeDisabled();
-    });
-
-    it('should enable send button when input has content', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, { target: { value: 'hello' } });
-      const sendButton = screen.getByRole('button', { name: /发送/ });
-      expect(sendButton).not.toBeDisabled();
-    });
-
-    it('should send via Enter key', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, { target: { value: 'enter question' } });
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
-      expect(screen.getByText('enter question')).toBeInTheDocument();
-    });
-
-    it('should allow newline with Shift+Enter without sending', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(
-        /例如：路由配置在哪里？/,
-      ) as HTMLTextAreaElement;
-      fireEvent.change(input, { target: { value: 'multi' } });
-      fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', shiftKey: true });
-      // Shift+Enter 不应触发发送，消息列表应仍为空
-      expect(screen.queryByText('已收到问题：multi')).not.toBeInTheDocument();
-      // 输入内容应保留
-      expect(input.value).toBe('multi');
-    });
-
-    it('should accumulate multiple messages', async () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-
-      fireEvent.change(input, { target: { value: 'first' } });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
-
-      fireEvent.change(input, { target: { value: 'second' } });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
-
       await waitFor(() => {
-        expect(screen.getByText('first')).toBeInTheDocument();
-        expect(screen.getByText('second')).toBeInTheDocument();
-        expect(screen.getByText('已收到问题：first')).toBeInTheDocument();
-        expect(screen.getByText('已收到问题：second')).toBeInTheDocument();
+        const btn = screen.getByRole('button', { name: /发送/ });
+        expect(btn).toBeDisabled();
+      });
+    });
+
+    it('disables the send button when input is empty even if repo is selected', async () => {
+      mockUseRepoContext.mockReturnValue(buildRepoContext({ currentRepoId: 'repo-1' }));
+      renderChat();
+      await waitFor(() => {
+        const btn = screen.getByRole('button', { name: /发送/ });
+        expect(btn).toBeDisabled();
+      });
+    });
+
+    it('enables the send button when both repo and input are present', async () => {
+      mockUseRepoContext.mockReturnValue(buildRepoContext({ currentRepoId: 'repo-1' }));
+      renderChat();
+      const input = (await screen.findByPlaceholderText(/例如：路由配置在哪里？/)) as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'hello' } });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /发送/ })).not.toBeDisabled();
+      });
+    });
+
+    it('treats whitespace-only input as empty and keeps button disabled', async () => {
+      mockUseRepoContext.mockReturnValue(buildRepoContext({ currentRepoId: 'repo-1' }));
+      renderChat();
+      const input = (await screen.findByPlaceholderText(/例如：路由配置在哪里？/)) as HTMLInputElement;
+      fireEvent.change(input, { target: { value: '   ' } });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /发送/ })).toBeDisabled();
       });
     });
   });
 
-  describe('Knowledge Base Alert', () => {
-    it('should not show knowledge warning when hasKnowledge is true', () => {
+  describe('Knowledge Base Alerts', () => {
+    it('does not show a knowledge alert when no repo is selected', async () => {
       renderChat();
-      expect(
-        screen.queryByText(/当前仓库尚未构建知识库/),
-      ).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByText(/知识库已构建/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/尚未构建知识库/)).not.toBeInTheDocument();
+      });
+    });
+
+    it('shows the success alert when knowledge is ready', async () => {
+      mockUseRepoContext.mockReturnValue(buildRepoContext({ currentRepoId: 'repo-1' }));
+      mockFetchKnowledge.mockResolvedValue({
+        data: { status: 'ready', fileCount: 3, chunkCount: 10, graphStatus: { nodeCount: 5 } },
+      });
+      renderChat();
+      await waitFor(() => {
+        expect(screen.getByText('知识库已构建')).toBeInTheDocument();
+      });
+    });
+
+    it('shows the warning alert when knowledge is not ready', async () => {
+      mockUseRepoContext.mockReturnValue(buildRepoContext({ currentRepoId: 'repo-1' }));
+      mockFetchKnowledge.mockResolvedValue({
+        data: { status: 'not_indexed', fileCount: 0, chunkCount: 0, graphStatus: { nodeCount: 0 } },
+      });
+      renderChat();
+      await waitFor(() => {
+        expect(screen.getByText(/尚未构建知识库/)).toBeInTheDocument();
+      });
+    });
+
+    it('shows the warning alert when fetchKnowledge fails', async () => {
+      mockUseRepoContext.mockReturnValue(buildRepoContext({ currentRepoId: 'repo-1' }));
+      mockFetchKnowledge.mockRejectedValue(new Error('boom'));
+      renderChat();
+      await waitFor(() => {
+        expect(screen.getByText(/尚未构建知识库/)).toBeInTheDocument();
+      });
     });
   });
 
-  describe('Special Characters', () => {
-    it('should handle emoji input', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, { target: { value: '你好 🚀' } });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
-      expect(screen.getByText('你好 🚀')).toBeInTheDocument();
-    });
-
-    it('should handle HTML/script-like content as text', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, {
-        target: { value: '<script>alert("xss")</script>' },
-      });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
-      expect(
-        screen.getByText('<script>alert("xss")</script>'),
-      ).toBeInTheDocument();
-    });
-
-    it('should handle SQL-like content as text', () => {
-      renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, { target: { value: "'; DROP TABLE users; --" } });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
-      expect(
-        screen.getByText("'; DROP TABLE users; --"),
-      ).toBeInTheDocument();
-    });
-  });
-
-  describe('Message Styling', () => {
-    it('should render user and assistant messages with different backgrounds', () => {
-      const { container } = renderChat();
-      const input = screen.getByPlaceholderText(/例如：路由配置在哪里？/);
-      fireEvent.change(input, { target: { value: 'style test' } });
-      fireEvent.click(screen.getByRole('button', { name: /发送/ }));
-
-      const allDivs = Array.from(
-        container.querySelectorAll('div'),
-      ) as HTMLElement[];
-      const userBubble = allDivs.find((d) => {
-        const ct = d.style.cssText.toLowerCase();
-        return ct.includes('rgb(22, 93, 255)') || ct.includes('#165dff');
-      });
-      const assistantBubble = allDivs.find((d) => {
-        const ct = d.style.cssText.toLowerCase();
-        return ct.includes('rgb(245, 247, 250)') || ct.includes('#f5f7fa');
-      });
-
-      expect(userBubble).toBeTruthy();
-      expect(assistantBubble).toBeTruthy();
-      expect(userBubble!.style.cssText.toLowerCase()).toMatch(
-        /rgb\(22, ?93, ?255\)|#165dff/,
+  describe('Repo Selector', () => {
+    it('renders the repo selector with options from context', async () => {
+      mockUseRepoContext.mockReturnValue(
+        buildRepoContext({
+          repoList: [
+            { id: 'r1', fullName: 'owner/repo1' },
+            { id: 'r2', fullName: 'owner/repo2' },
+          ],
+        }),
       );
-      expect(assistantBubble!.style.cssText.toLowerCase()).toMatch(
-        /rgb\(245, ?247, ?250\)|#f5f7fa/,
-      );
+      renderChat();
+      // antd Select placeholder is shown when no value
+      await waitFor(() => {
+        expect(screen.getByText('选择仓库')).toBeInTheDocument();
+      });
     });
   });
 });

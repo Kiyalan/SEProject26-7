@@ -4577,12 +4577,10 @@
           "syncedRepos",
           "failedRepos",
           "knowledgeChunks",
-          "memoryEntries",
           "faqEntries",
           "activeUsers",
-          "openIssues",
           "syncSuccessRate",
-          "lastFullCheck"
+          "lastIndexedAt"
         ],
         "properties": {
           "totalRepos": {
@@ -4597,22 +4595,16 @@
           "knowledgeChunks": {
             "type": "integer"
           },
-          "memoryEntries": {
-            "type": "integer"
-          },
           "faqEntries": {
             "type": "integer"
           },
           "activeUsers": {
             "type": "integer"
           },
-          "openIssues": {
-            "type": "integer"
-          },
           "syncSuccessRate": {
             "type": "number"
           },
-          "lastFullCheck": {
+          "lastIndexedAt": {
             "type": "string"
           }
         }
@@ -4643,8 +4635,7 @@
           "repoFullName",
           "status",
           "startedAt",
-          "filesSynced",
-          "trigger"
+          "filesSynced"
         ],
         "properties": {
           "id": {
@@ -4684,14 +4675,6 @@
             "type": [
               "string",
               "null"
-            ]
-          },
-          "trigger": {
-            "type": "string",
-            "enum": [
-              "manual",
-              "webhook",
-              "scheduled"
             ]
           }
         }
@@ -4746,9 +4729,7 @@
           "repoFullName",
           "failedAt",
           "errorType",
-          "errorMessage",
-          "retryCount",
-          "status"
+          "errorMessage"
         ],
         "properties": {
           "id": {
@@ -4772,17 +4753,6 @@
           },
           "errorMessage": {
             "type": "string"
-          },
-          "retryCount": {
-            "type": "integer"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "retrying",
-              "ignored"
-            ]
           }
         }
       },
@@ -4809,10 +4779,8 @@
         "required": [
           "repoFullName",
           "knowledgeOk",
-          "memoryOk",
           "faqOk",
           "chunkCount",
-          "memoryCount",
           "lastChecked",
           "issues"
         ],
@@ -4826,16 +4794,10 @@
           "knowledgeOk": {
             "type": "boolean"
           },
-          "memoryOk": {
-            "type": "boolean"
-          },
           "faqOk": {
             "type": "boolean"
           },
           "chunkCount": {
-            "type": "integer"
-          },
-          "memoryCount": {
             "type": "integer"
           },
           "lastChecked": {
@@ -4873,7 +4835,6 @@
           "repoId",
           "repoFullName",
           "faqCount",
-          "memoryCount",
           "lastUpdated"
         ],
         "properties": {
@@ -4884,9 +4845,6 @@
             "type": "string"
           },
           "faqCount": {
-            "type": "integer"
-          },
-          "memoryCount": {
             "type": "integer"
           },
           "lastUpdated": {

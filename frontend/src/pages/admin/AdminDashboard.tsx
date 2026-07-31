@@ -8,7 +8,7 @@ const statusTag: Record<AdminSyncTask['status'], { color: string; label: string 
   success: { color: 'green', label: '成功' },
   running: { color: 'blue', label: '进行中' },
   failed: { color: 'red', label: '失败' },
-  paused: { color: 'orange', label: '暂停' },
+  paused: { color: 'orange', label: '已取消' },
 }
 
 export default function AdminDashboard() {
@@ -22,7 +22,7 @@ export default function AdminDashboard() {
     faqEntries: 0,
     activeUsers: 0,
     syncSuccessRate: 0,
-    lastFullCheck: '',
+    lastIndexedAt: '',
   })
   const [trend, setTrend] = useState<{ date: string; success: number; failed: number }[]>([])
   const [recentLogs, setRecentLogs] = useState<AdminSyncTask[]>([])
@@ -114,10 +114,12 @@ export default function AdminDashboard() {
               <span className="gh-muted">失败任务</span>
               <span>{stats.failedRepos}</span>
             </div>
-            <div className="gh-data-row">
-              <span className="gh-muted">最近全检</span>
-              <span>{stats.lastFullCheck || '—'}</span>
-            </div>
+            {stats.lastIndexedAt ? (
+              <div className="gh-data-row">
+                <span className="gh-muted">最近索引</span>
+                <span>{stats.lastIndexedAt}</span>
+              </div>
+            ) : null}
             {trend.length > 0 && (
               <div style={{ marginTop: 12 }}>
                 <strong style={{ fontSize: 13 }}>近 7 日趋势</strong>

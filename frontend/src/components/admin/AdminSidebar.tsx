@@ -40,11 +40,6 @@ export default function AdminSidebar() {
           )
         })}
       </ul>
-      <div className="admin-sidebar-foot">
-        <p className="gh-muted" style={{ fontSize: 12, margin: 0 }}>
-          演示数据 · 仅前端 Mock
-        </p>
-      </div>
     </aside>
   )
 }
