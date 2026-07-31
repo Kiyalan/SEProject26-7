@@ -1,0 +1,203 @@
+/* Admin console — extends github-theme */
+
+.admin-app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--gh-canvas-subtle);
+}
+
+.admin-header {
+  height: var(--gh-header-height);
+  background: #24292f;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.admin-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.admin-header-badge {
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.admin-header-actions .gh-btn {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.3);
+  background: transparent;
+}
+
+.admin-header-actions .gh-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.admin-body {
+  display: flex;
+  flex: 1;
+  max-width: 1600px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.admin-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--gh-canvas-default);
+  border-right: 1px solid var(--gh-border-default);
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--gh-header-height));
+}
+
+.admin-sidebar-title {
+  padding: 16px 16px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gh-fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-sidebar-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+  flex: 1;
+}
+
+.admin-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--gh-radius);
+  color: var(--gh-fg-default);
+  text-decoration: none;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.admin-sidebar-link:hover {
+  background: var(--gh-canvas-subtle);
+  color: var(--gh-accent-fg);
+}
+
+.admin-sidebar-link.active {
+  background: #ddf4ff;
+  color: var(--gh-accent-fg);
+  font-weight: 600;
+}
+
+.admin-sidebar-foot {
+  padding: 12px 16px;
+  border-top: 1px solid var(--gh-border-muted);
+}
+
+.admin-main {
+  flex: 1;
+  min-width: 0;
+  padding: 24px;
+}
+
+.admin-page-header {
+  margin-bottom: 20px;
+}
+
+.admin-page-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.admin-page-header p {
+  margin: 0;
+  color: var(--gh-fg-muted);
+  font-size: 14px;
+}
+
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-card {
+  background: var(--gh-canvas-default);
+  border: 1px solid var(--gh-border-default);
+  border-radius: var(--gh-radius);
+}
+
+.admin-card .ant-card-head {
+  border-bottom: 1px solid var(--gh-border-muted);
+  min-height: 44px;
+}
+
+.admin-login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #24292f 0%, #1f2328 40%, #f6f8fa 40%);
+  padding: 24px;
+}
+
+.admin-login-card {
+  width: 400px;
+  box-shadow: 0 8px 24px rgba(31, 35, 40, 0.12);
+}
+
+.admin-login-hint code {
+  background: var(--gh-canvas-subtle);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .admin-body {
+    flex-direction: column;
+  }
+
+  .admin-sidebar {
+    width: 100%;
+    min-height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--gh-border-default);
+  }
+
+  .admin-sidebar-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding-bottom: 8px;
+  }
+
+  .admin-main {
+    padding: 16px;
+  }
+}
